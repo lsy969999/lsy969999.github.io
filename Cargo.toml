@@ -1,0 +1,6 @@
+[package]
+name = "lsy969999_github_io"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
