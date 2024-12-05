@@ -1,3 +1,3 @@
 fn main() {
-    println!("Hello, world!");
+    lsy969999_github_io::main();
 }
