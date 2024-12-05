@@ -2,7 +2,7 @@
 
 name="lsy969999_github_io"
 
-cargo build --release --target wasm32-unknown-unknown
+cargo build --release --no-default-features --target wasm32-unknown-unknown
 wasm-bindgen --out-name $name \
   --out-dir dist \
   --target web target/wasm32-unknown-unknown/release/$name.wasm
