@@ -3,4 +3,61 @@ name = "lsy969999_github_io"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["inspector"]
+inspector = ["bevy-inspector-egui", "iyes_perf_ui"]
+
 [dependencies]
+bevy-inspector-egui = { version = "0.28.0", optional = true, features = [
+    "bevy_image",
+    "bevy_pbr",
+    "bevy_render",
+    "egui_open_url",
+], default-features = false }
+bevy = { version = "0.15.0", features = [
+    # "android-game-activity",
+    # "android_shared_stdcxx",
+    # "animation",
+    # "bevy_asset",
+    # "bevy_audio",
+    # "bevy_color",
+    # "bevy_core_pipeline",
+    # "bevy_gilrs",
+    # "bevy_gizmos",
+    # "bevy_gltf",
+    # "bevy_mesh_picking_backend",
+    "bevy_pbr",
+    # "bevy_picking",
+    # "bevy_render",
+    # "bevy_scene",
+    # "bevy_sprite",
+    # "bevy_sprite_picking_backend",
+    # "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    # "bevy_ui_picking_backend",
+    "bevy_window",
+    "bevy_winit",
+    # "custom_cursor",
+    "default_font",
+    # "hdr",
+    # "multi_threaded",
+    # "png",
+    # "smaa_luts",
+    # "sysinfo_plugin",
+    "tonemapping_luts",
+    # "vorbis",
+    "webgl2",
+    # "x11",
+], default-features = false }
+iyes_perf_ui = { git = "https://github.com/IyesGames/iyes_perf_ui.git", branch = "main", optional = true }
+
+
+[profile.release]
+opt-level = 'z'         # 최적의 크기 감소를 위한 최적화 (z는 크기 기준, s는 성능 기준)
+lto = true              # 'thin'보다 더 높은 수준의 LTO (fat은 더 많은 크기 최적화 제공)
+codegen-units = 1       # 코드 생성 단위를 1로 설정하여 최적화
+panic = 'abort'         # 패닉 시 스택 추적을 제외하여 크기 감소
+debug = false           # 디버그 심볼 제거
+overflow-checks = false # 오버플로 체크 제거
+strip = true
