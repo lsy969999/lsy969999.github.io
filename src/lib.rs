@@ -3,6 +3,7 @@ mod asset;
 mod games;
 #[cfg(feature = "inspector")]
 mod inspector;
+mod ui;
 
 pub fn main() {
     use app::MyAppPlugin;

@@ -2,9 +2,13 @@ use bevy::prelude::*;
 // use bevy_asset_loader::loading_state::{
 //     config::ConfigureLoadingState, LoadingState, LoadingStateAppExt,
 // };
-use event::{FontLoaded, FoxLoaded};
 
-use system::{asset_load, on_asset_font_load_state, on_asset_fox_load_state};
+use system::{
+    check_base_asset_loading, check_default_scene_asset_loading, on_enter_base_asset_loading,
+    on_enter_default_secne_asset_loading,
+};
+
+use crate::app::state::MyAppState;
 
 pub mod event;
 pub mod resource;
@@ -14,22 +18,23 @@ pub struct MyAssetPlugin;
 
 impl Plugin for MyAssetPlugin {
     fn build(&self, app: &mut App) {
-        // app.init_state::<FoxAssetsLoadState>();
-        // app.init_state::<RequiredAssetsLoadState>();
-        // app.add_loading_state(
-        //     LoadingState::new(FoxAssetsLoadState::Loading)
-        //         .continue_to_state(FoxAssetsLoadState::LoadEnd)
-        //         .load_collection::<FoxAssets>(),
-        // )
-        // .add_loading_state(
-        //     LoadingState::new(RequiredAssetsLoadState::Loading)
-        //         .continue_to_state(RequiredAssetsLoadState::LoadEnd)
-        //         .load_collection::<RequiredAssets>(),
-        // );
+        app.add_systems(
+            OnEnter(MyAppState::BaseAssetLoading),
+            on_enter_base_asset_loading,
+        );
+        app.add_systems(
+            Update,
+            check_base_asset_loading.run_if(in_state(MyAppState::BaseAssetLoading)),
+        );
 
-        app.add_event::<FontLoaded>();
-        app.add_event::<FoxLoaded>();
-        app.add_systems(Startup, asset_load);
-        app.add_systems(Update, (on_asset_fox_load_state, on_asset_font_load_state));
+        app.add_systems(
+            OnEnter(MyAppState::DefaultSceneAssetLoading),
+            on_enter_default_secne_asset_loading,
+        );
+        app.add_systems(
+            Update,
+            check_default_scene_asset_loading
+                .run_if(in_state(MyAppState::DefaultSceneAssetLoading)),
+        );
     }
 }
