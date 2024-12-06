@@ -1,8 +1,8 @@
 use bevy::{math::vec3, prelude::*};
 
 use crate::asset::{
-    resource::{FoxAssets, RequiredAssets},
-    state::{FoxAssetsLoadState, RequiredAssetsLoadState},
+    event::{FontLoaded, FoxLoaded},
+    resource::MyAssets,
 };
 
 pub struct MyDefaultGamePlugin;
@@ -11,8 +11,8 @@ impl Plugin for MyDefaultGamePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup);
 
-        app.add_systems(OnEnter(FoxAssetsLoadState::LoadEnd), fox_spawn);
-        app.add_systems(OnEnter(RequiredAssetsLoadState::LoadEnd), spawn_ui);
+        app.add_systems(Update, fox_spawn);
+        app.add_systems(Update, spawn_ui);
     }
 }
 
@@ -21,6 +21,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    info!("setup");
     // circular base
     commands.spawn((
         Mesh3d(meshes.add(Circle::new(4.0))),
@@ -35,26 +36,40 @@ fn setup(
     ));
 }
 
-fn fox_spawn(mut commands: Commands, my_assets: Res<FoxAssets>, gltf_assets: Res<Assets<Gltf>>) {
-    let Some(gltf) = gltf_assets.get(my_assets.fox.id()) else {
-        return;
-    };
-    info!("fox_spawn");
-    let zz = gltf.scenes[0].clone();
-    commands.spawn((
-        SceneRoot(zz),
-        Transform::from_xyz(2., 0., 0.).with_scale(vec3(0.01, 0.01, 0.01)),
-    ));
+fn fox_spawn(
+    mut commands: Commands,
+    my_assets: Res<MyAssets>,
+    gltf_assets: Res<Assets<Gltf>>,
+    mut er: EventReader<FoxLoaded>,
+) {
+    for _ in er.read() {
+        // let MyAssetLoadedEvent::FoxLoaded = evt else {
+        //     return;
+        // };
+        let Some(gltf) = gltf_assets.get(my_assets.fox.id()) else {
+            return;
+        };
+        info!("fox_spawn");
+        commands.spawn((
+            SceneRoot(gltf.scenes[0].clone()),
+            Transform::from_xyz(2., 0., 0.).with_scale(vec3(0.01, 0.01, 0.01)),
+        ));
+    }
 }
 
-fn spawn_ui(mut commands: Commands, my_assets: Res<RequiredAssets>) {
-    info!("spawnui");
-    commands.spawn((
-        Name::new("text"),
-        Text::new("text"),
-        TextFont {
-            font: my_assets.galmuri_mono11.clone(),
-            ..default()
-        },
-    ));
+fn spawn_ui(mut commands: Commands, my_assets: Res<MyAssets>, mut er: EventReader<FontLoaded>) {
+    for _ in er.read() {
+        // let MyAssetLoadedEvent::FontLoaded = evt else {
+        //     return;
+        // };
+        info!("spawnui");
+        commands.spawn((
+            Name::new("text"),
+            Text::new("text"),
+            TextFont {
+                font: my_assets.font.clone(),
+                ..default()
+            },
+        ));
+    }
 }

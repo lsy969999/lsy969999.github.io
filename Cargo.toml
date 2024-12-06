@@ -20,7 +20,7 @@ bevy = { version = "0.15.0", features = [
     "animation",
     "bevy_asset",
     # "bevy_audio",
-    # "bevy_color",
+    "bevy_color",
     # "bevy_core_pipeline",
     # "bevy_gilrs",
     # "bevy_gizmos",
@@ -32,7 +32,7 @@ bevy = { version = "0.15.0", features = [
     # "bevy_scene",
     # "bevy_sprite",
     # "bevy_sprite_picking_backend",
-    # "bevy_state",
+    "bevy_state",
     "bevy_text",
     "bevy_ui",
     # "bevy_ui_picking_backend",
@@ -51,7 +51,7 @@ bevy = { version = "0.15.0", features = [
     # "x11",
 ], default-features = false }
 iyes_perf_ui = { git = "https://github.com/IyesGames/iyes_perf_ui.git", branch = "main", optional = true }
-bevy_asset_loader = { version = "0.22.0" }
+# bevy_asset_loader = { version = "0.22.0" }
 
 
 [profile.release]
