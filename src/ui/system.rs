@@ -18,7 +18,7 @@ pub fn despawn_under_root_ui(
     mut commands: Commands,
     q_root: Query<(Entity, &Children), With<RootUiNode>>,
 ) {
-    let Ok((root_ui, children)) = q_root.get_single() else {
+    let Ok((_, children)) = q_root.get_single() else {
         return;
     };
 

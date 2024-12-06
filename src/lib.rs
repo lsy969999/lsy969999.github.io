@@ -3,6 +3,7 @@ mod asset;
 mod games;
 #[cfg(feature = "inspector")]
 mod inspector;
+mod shader;
 mod ui;
 
 pub fn main() {

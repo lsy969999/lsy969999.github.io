@@ -1,16 +1,7 @@
 use bevy::prelude::*;
 
-#[derive(Resource)]
-pub struct MyAssets {
-    pub fox: Handle<Gltf>,
-    pub font: Handle<Font>,
-}
+use super::custom::asset::{CustomAsset, TestAsset};
 
-#[derive(Resource)]
-pub struct MyAssetsLoaded {
-    pub is_loaded_fox: bool,
-    pub is_loaded_font: bool,
-}
 #[derive(Resource)]
 pub struct DefaultSceneAssets {
     pub fox: Handle<Gltf>,
@@ -19,11 +10,16 @@ pub struct DefaultSceneAssets {
 pub struct DefaultSceneAssetsLoaded {
     pub is_loaded_fox: bool,
 }
+
 #[derive(Resource)]
 pub struct BaseAssets {
     pub font: Handle<Font>,
+    pub custom: Handle<CustomAsset>,
+    pub test: Handle<TestAsset>,
 }
 #[derive(Resource)]
 pub struct BaseAssetsLoaded {
     pub is_loaded_font: bool,
+    pub is_loaded_custom: bool,
+    pub is_loadedd_test: bool,
 }

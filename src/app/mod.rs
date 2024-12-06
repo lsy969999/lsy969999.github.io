@@ -1,4 +1,7 @@
-use crate::{asset::MyAssetPlugin, games::default::MyDefaultGamePlugin, ui::MyUiPlugin};
+use crate::{
+    asset::MyAssetPlugin, games::default::MyDefaultGamePlugin, shader::MyShaderPlugin,
+    ui::MyUiPlugin,
+};
 use bevy::prelude::*;
 use state::MyAppState;
 use system::{setup_camera_light, start_state};
@@ -17,6 +20,7 @@ impl Plugin for MyAppPlugin {
 
         app.add_plugins(MyAssetPlugin)
             .add_plugins(MyUiPlugin)
+            .add_plugins(MyShaderPlugin)
             .add_plugins(MyDefaultGamePlugin);
 
         app.add_systems(Startup, setup_camera_light);

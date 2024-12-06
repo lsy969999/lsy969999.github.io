@@ -3,6 +3,7 @@ use bevy::prelude::*;
 //     config::ConfigureLoadingState, LoadingState, LoadingStateAppExt,
 // };
 
+use custom::CustomAssetLoaderPlugin;
 use system::{
     check_base_asset_loading, check_default_scene_asset_loading, on_enter_base_asset_loading,
     on_enter_default_secne_asset_loading,
@@ -10,6 +11,7 @@ use system::{
 
 use crate::app::state::MyAppState;
 
+pub mod custom;
 pub mod event;
 pub mod resource;
 pub mod state;
@@ -18,6 +20,8 @@ pub struct MyAssetPlugin;
 
 impl Plugin for MyAssetPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(CustomAssetLoaderPlugin);
+
         app.add_systems(
             OnEnter(MyAppState::BaseAssetLoading),
             on_enter_base_asset_loading,
