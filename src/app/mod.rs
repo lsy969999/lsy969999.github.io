@@ -1,9 +1,10 @@
-use crate::{asset::MyAssetPlugin, games::default::MyDefaultGamePlugin};
+use crate::{asset::MyAssetPlugin, games::default::MyDefaultGamePlugin, ui::MyUiPlugin};
 use bevy::prelude::*;
 use state::MyAppState;
-use system::setup_camera_light;
+use system::{setup_camera_light, start_state};
 
-mod state;
+pub mod component;
+pub mod state;
 mod system;
 
 pub struct MyAppPlugin;
@@ -11,9 +12,15 @@ pub struct MyAppPlugin;
 impl Plugin for MyAppPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<MyAppState>();
+
+        app.add_plugins(MeshPickingPlugin);
+
         app.add_plugins(MyAssetPlugin)
+            .add_plugins(MyUiPlugin)
             .add_plugins(MyDefaultGamePlugin);
+
         app.add_systems(Startup, setup_camera_light);
+        app.add_systems(Startup, start_state);
         #[cfg(feature = "inspector")]
         {
             use super::inspector::InspectorPlugin;

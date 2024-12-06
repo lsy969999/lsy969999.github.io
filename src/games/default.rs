@@ -1,18 +1,16 @@
 use bevy::{math::vec3, prelude::*};
 
-use crate::asset::{
-    event::{FontLoaded, FoxLoaded},
-    resource::MyAssets,
+use crate::{
+    app::state::MyAppState,
+    asset::resource::{BaseAssets, DefaultSceneAssets},
 };
 
 pub struct MyDefaultGamePlugin;
 
 impl Plugin for MyDefaultGamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup);
-
-        app.add_systems(Update, fox_spawn);
-        app.add_systems(Update, spawn_ui);
+        app.add_systems(OnEnter(MyAppState::DefaultScene), setup);
+        app.add_systems(OnEnter(MyAppState::DefaultScene), fox_spawn);
     }
 }
 
@@ -23,11 +21,15 @@ fn setup(
 ) {
     info!("setup");
     // circular base
-    commands.spawn((
-        Mesh3d(meshes.add(Circle::new(4.0))),
-        MeshMaterial3d(materials.add(Color::WHITE)),
-        Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
-    ));
+    commands
+        .spawn((
+            Mesh3d(meshes.add(Circle::new(4.0))),
+            MeshMaterial3d(materials.add(Color::WHITE)),
+            Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+        ))
+        .observe(|out: Trigger<Pointer<Click>>| {
+            info!("base click depth: {:?}", out.hit.depth);
+        });
     // cube
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
@@ -38,38 +40,15 @@ fn setup(
 
 fn fox_spawn(
     mut commands: Commands,
-    my_assets: Res<MyAssets>,
+    my_assets: Res<DefaultSceneAssets>,
     gltf_assets: Res<Assets<Gltf>>,
-    mut er: EventReader<FoxLoaded>,
 ) {
-    for _ in er.read() {
-        // let MyAssetLoadedEvent::FoxLoaded = evt else {
-        //     return;
-        // };
-        let Some(gltf) = gltf_assets.get(my_assets.fox.id()) else {
-            return;
-        };
-        info!("fox_spawn");
-        commands.spawn((
-            SceneRoot(gltf.scenes[0].clone()),
-            Transform::from_xyz(2., 0., 0.).with_scale(vec3(0.01, 0.01, 0.01)),
-        ));
-    }
-}
-
-fn spawn_ui(mut commands: Commands, my_assets: Res<MyAssets>, mut er: EventReader<FontLoaded>) {
-    for _ in er.read() {
-        // let MyAssetLoadedEvent::FontLoaded = evt else {
-        //     return;
-        // };
-        info!("spawnui");
-        commands.spawn((
-            Name::new("text"),
-            Text::new("text"),
-            TextFont {
-                font: my_assets.font.clone(),
-                ..default()
-            },
-        ));
-    }
+    let Some(gltf) = gltf_assets.get(my_assets.fox.id()) else {
+        return;
+    };
+    info!("fox_spawn");
+    commands.spawn((
+        SceneRoot(gltf.scenes[0].clone()),
+        Transform::from_xyz(2., 0., 0.).with_scale(vec3(0.01, 0.01, 0.01)),
+    ));
 }

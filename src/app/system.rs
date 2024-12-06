@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use super::state::MyAppState;
+
 pub(super) fn setup_camera_light(mut commands: Commands) {
     // light
     commands.spawn((
@@ -14,4 +16,8 @@ pub(super) fn setup_camera_light(mut commands: Commands) {
         Camera3d::default(),
         Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+}
+
+pub(super) fn start_state(mut next_state: ResMut<NextState<MyAppState>>) {
+    next_state.set(MyAppState::BaseAssetLoading);
 }
