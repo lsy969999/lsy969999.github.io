@@ -1,4 +1,4 @@
-use bevy::{color::palettes::css, prelude::*};
+use bevy::prelude::*;
 
 use crate::asset::resource::BaseAssets;
 

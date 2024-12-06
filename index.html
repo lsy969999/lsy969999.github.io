@@ -6,22 +6,27 @@
     <title>Hi!</title>
 </head>
 <body>
+    <progress style="position: absolute;" id="progress" max="100" value="0"></progress>
+
     <canvas id="target"></canvas>
     <script src="./js/progressive_fetch.js"></script>
     <script type="module">
         import init from './dist/lsy969999_github_io.js'
+        
         window.bevyProgressiveFetch = async (resource) => {
-            return progressive_fetch(resource, 14969245, {
+            return progressive_fetch(resource, 15164545, {
                 start: (length) => {
                     console.log('[progressive_fetch] start', length)
                 },
                 progress: (progress, length) => {
                     const per = 100 * progress/length;
-                    console.log('[progressive_fetch] update', progress, length, per/100)
+                    console.log('[progressive_fetch] update', progress, length, per)
+                    document.getElementById('progress').value = per
                    
                 },
                 flush: (length) => {
                     console.log('[progressive_fetch] flush', length)
+                    document.getElementById('progress').style = 'display: none'
                 }
             })
         }

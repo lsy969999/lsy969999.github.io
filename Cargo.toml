@@ -51,6 +51,9 @@ bevy = { version = "0.15.0", features = [
     # "x11",
 ], default-features = false }
 iyes_perf_ui = { git = "https://github.com/IyesGames/iyes_perf_ui.git", branch = "main", optional = true }
+ron = "0.8.1"
+thiserror = "2.0.4"
+serde = { version = "1.0.215", features = ["derive"] }
 # bevy_asset_loader = { version = "0.22.0" }
 
 
