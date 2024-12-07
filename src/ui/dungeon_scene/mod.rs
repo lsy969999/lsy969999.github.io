@@ -3,8 +3,7 @@ use bevy::prelude::*;
 use crate::{app::state::MyAppState, asset::resource::BaseAssets};
 
 use super::component::RootUiNode;
-
-pub fn on_enter_default_scene(
+pub fn on_enter_dungeon_scene(
     mut commands: Commands,
     q_root: Query<Entity, With<RootUiNode>>,
     base_asset: Res<BaseAssets>,
@@ -17,7 +16,7 @@ pub fn on_enter_default_scene(
     commands.entity(root_ui).with_children(|parent| {
         parent.spawn(Node { ..default() }).with_children(|parent| {
             parent.spawn((
-                Text::new("default scene"),
+                Text::new("dungeon scene"),
                 TextFont {
                     font: base_asset.font.clone(),
                     ..default()
@@ -28,7 +27,7 @@ pub fn on_enter_default_scene(
                 .observe(
                     |out: Trigger<Pointer<Click>>,
                      mut next_state: ResMut<NextState<MyAppState>>| {
-                        next_state.set(MyAppState::DungeonSceneAssetLoading);
+                        next_state.set(MyAppState::DefaultSceneAssetLoading);
                     },
                 )
                 .with_children(|parent| {

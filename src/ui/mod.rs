@@ -1,6 +1,7 @@
 use asset_loading::{enter_base_loading_ui, enter_default_scene_loading_ui};
 use bevy::prelude::*;
 use default_scene::on_enter_default_scene;
+use dungeon_scene::on_enter_dungeon_scene;
 use system::{despawn_under_root_ui, setup_ui_root};
 
 use crate::app::state::MyAppState;
@@ -8,8 +9,8 @@ use crate::app::state::MyAppState;
 pub mod asset_loading;
 pub mod component;
 pub mod default_scene;
+pub mod dungeon_scene;
 pub mod system;
-
 pub struct MyUiPlugin;
 
 impl Plugin for MyUiPlugin {
@@ -29,5 +30,9 @@ impl Plugin for MyUiPlugin {
         );
 
         app.add_systems(OnEnter(MyAppState::DefaultScene), on_enter_default_scene);
+        app.add_systems(OnExit(MyAppState::DefaultScene), despawn_under_root_ui);
+
+        app.add_systems(OnEnter(MyAppState::DungeonScene), on_enter_dungeon_scene);
+        app.add_systems(OnExit(MyAppState::DungeonScene), despawn_under_root_ui);
     }
 }

@@ -1,25 +1,24 @@
 use bevy::prelude::*;
+use bevy_asset_loader::asset_collection::AssetCollection;
 
-use super::custom::asset::{CustomAsset, TestAsset};
+use super::custom::CustomAsset;
 
-#[derive(Resource)]
+#[derive(AssetCollection, Resource)]
 pub struct DefaultSceneAssets {
+    #[asset(path = "models/Fox.glb")]
     pub fox: Handle<Gltf>,
 }
-#[derive(Resource)]
-pub struct DefaultSceneAssetsLoaded {
-    pub is_loaded_fox: bool,
+
+#[derive(AssetCollection, Resource)]
+pub struct DungeonSceneAssets {
+    #[asset(path = "models/Fox.glb")]
+    pub fox: Handle<Gltf>,
 }
 
-#[derive(Resource)]
+#[derive(AssetCollection, Resource)]
 pub struct BaseAssets {
+    #[asset(path = "fonts/GalmuriMono11.ttf")]
     pub font: Handle<Font>,
+    #[asset(path = "ron/some.custom.ron")]
     pub custom: Handle<CustomAsset>,
-    pub test: Handle<TestAsset>,
-}
-#[derive(Resource)]
-pub struct BaseAssetsLoaded {
-    pub is_loaded_font: bool,
-    pub is_loaded_custom: bool,
-    pub is_loadedd_test: bool,
 }
