@@ -1,5 +1,7 @@
 use crate::{
-    asset::MyAssetPlugin, games::default::MyDefaultGamePlugin, shader::MyShaderPlugin,
+    asset::MyAssetPlugin,
+    games::{default::MyDefaultGamePlugin, dungeon::MyDungeonGamePlugin},
+    shader::MyShaderPlugin,
     ui::MyUiPlugin,
 };
 use bevy::prelude::*;
@@ -21,7 +23,8 @@ impl Plugin for MyAppPlugin {
         app.add_plugins(MyAssetPlugin)
             .add_plugins(MyUiPlugin)
             .add_plugins(MyShaderPlugin)
-            .add_plugins(MyDefaultGamePlugin);
+            .add_plugins(MyDefaultGamePlugin)
+            .add_plugins(MyDungeonGamePlugin);
 
         app.add_systems(Startup, setup_camera_light);
         app.add_systems(Startup, start_state);

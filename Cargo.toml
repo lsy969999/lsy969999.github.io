@@ -49,12 +49,17 @@ bevy = { version = "0.15.0", features = [
     # "vorbis",
     "webgl2",
     # "x11",
+    # /////// optional features ///////
+    # "trace_tracy", # cargo run --release --features bevy/trace_tracy
+    # "trace_tracy_memory", # cargo run --release --features bevy/trace_tracy_memory
 ], default-features = false }
 iyes_perf_ui = { git = "https://github.com/IyesGames/iyes_perf_ui.git", branch = "main", optional = true }
 ron = "0.8.1"
 thiserror = "2.0.4"
 serde = { version = "1.0.215", features = ["derive"] }
-# bevy_asset_loader = { version = "0.22.0" }
+# bevy_atmosphere = "0.11.0"
+bevy_asset_loader = { version = "0.22.0" }
+bevy_common_assets = { version = "0.12.0", features = ["ron"] }
 
 
 [profile.release]

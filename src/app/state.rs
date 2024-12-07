@@ -7,4 +7,6 @@ pub enum MyAppState {
     BaseAssetLoading,
     DefaultSceneAssetLoading,
     DefaultScene,
+    DungeonSceneAssetLoading,
+    DungeonScene,
 }

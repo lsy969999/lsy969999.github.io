@@ -1,13 +1,11 @@
 use bevy::prelude::*;
-// use bevy_asset_loader::loading_state::{
-//     config::ConfigureLoadingState, LoadingState, LoadingStateAppExt,
-// };
-
-use custom::CustomAssetLoaderPlugin;
-use system::{
-    check_base_asset_loading, check_default_scene_asset_loading, on_enter_base_asset_loading,
-    on_enter_default_secne_asset_loading,
+use bevy_asset_loader::loading_state::{
+    config::ConfigureLoadingState, LoadingState, LoadingStateAppExt,
 };
+use bevy_common_assets::ron::RonAssetPlugin;
+use custom::CustomAsset;
+use resource::{BaseAssets, DefaultSceneAssets, DungeonSceneAssets};
+use system::{remove_default_res, remove_dungeon_res};
 
 use crate::app::state::MyAppState;
 
@@ -20,25 +18,31 @@ pub struct MyAssetPlugin;
 
 impl Plugin for MyAssetPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(CustomAssetLoaderPlugin);
+        app.add_plugins(RonAssetPlugin::<CustomAsset>::new(&["custom.ron"]));
+
+        app.add_loading_state(
+            LoadingState::new(MyAppState::BaseAssetLoading)
+                .continue_to_state(MyAppState::DefaultSceneAssetLoading)
+                .load_collection::<BaseAssets>(),
+        )
+        .add_loading_state(
+            LoadingState::new(MyAppState::DefaultSceneAssetLoading)
+                .continue_to_state(MyAppState::DefaultScene)
+                .load_collection::<DefaultSceneAssets>(),
+        )
+        .add_loading_state(
+            LoadingState::new(MyAppState::DungeonSceneAssetLoading)
+                .continue_to_state(MyAppState::DungeonScene)
+                .load_collection::<DungeonSceneAssets>(),
+        );
 
         app.add_systems(
-            OnEnter(MyAppState::BaseAssetLoading),
-            on_enter_base_asset_loading,
+            OnEnter(MyAppState::DungeonSceneAssetLoading),
+            remove_default_res,
         );
-        app.add_systems(
-            Update,
-            check_base_asset_loading.run_if(in_state(MyAppState::BaseAssetLoading)),
-        );
-
         app.add_systems(
             OnEnter(MyAppState::DefaultSceneAssetLoading),
-            on_enter_default_secne_asset_loading,
-        );
-        app.add_systems(
-            Update,
-            check_default_scene_asset_loading
-                .run_if(in_state(MyAppState::DefaultSceneAssetLoading)),
+            remove_dungeon_res,
         );
     }
 }

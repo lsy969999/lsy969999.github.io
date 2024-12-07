@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::asset::resource::BaseAssets;
+use crate::{app::state::MyAppState, asset::resource::BaseAssets};
 
 use super::component::RootUiNode;
 
@@ -23,6 +23,23 @@ pub fn on_enter_default_scene(
                     ..default()
                 },
             ));
+            parent
+                .spawn((Button))
+                .observe(
+                    |out: Trigger<Pointer<Click>>,
+                     mut next_state: ResMut<NextState<MyAppState>>| {
+                        next_state.set(MyAppState::DungeonSceneAssetLoading);
+                    },
+                )
+                .with_children(|parent| {
+                    parent.spawn((
+                        Text::new("toggle"),
+                        TextFont {
+                            font: base_asset.font.clone(),
+                            ..default()
+                        },
+                    ));
+                });
         });
     });
 }
