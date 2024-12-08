@@ -4,6 +4,7 @@ use crate::{
     shader::MyShaderPlugin,
     ui::MyUiPlugin,
 };
+use avian3d::PhysicsPlugins;
 use bevy::prelude::*;
 use state::MyAppState;
 use system::{setup_camera_light, start_state};
@@ -18,7 +19,8 @@ impl Plugin for MyAppPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<MyAppState>();
 
-        app.add_plugins(MeshPickingPlugin);
+        app.add_plugins(MeshPickingPlugin)
+            .add_plugins(PhysicsPlugins::default());
 
         app.add_plugins(MyAssetPlugin)
             .add_plugins(MyUiPlugin)
@@ -31,7 +33,9 @@ impl Plugin for MyAppPlugin {
         #[cfg(feature = "inspector")]
         {
             use super::inspector::InspectorPlugin;
-            app.add_plugins(InspectorPlugin);
+            use avian3d::prelude::PhysicsDebugPlugin;
+            app.add_plugins(InspectorPlugin)
+                .add_plugins(PhysicsDebugPlugin::default());
         }
     }
 }
