@@ -4,11 +4,10 @@ use crate::{
     shader::MyShaderPlugin,
     ui::MyUiPlugin,
 };
-use avian3d::PhysicsPlugins;
 use bevy::prelude::*;
+use bevy_rapier3d::prelude::*;
 use state::MyAppState;
 use system::{setup_camera_light, start_state};
-
 pub mod component;
 pub mod state;
 mod system;
@@ -20,7 +19,7 @@ impl Plugin for MyAppPlugin {
         app.init_state::<MyAppState>();
 
         app.add_plugins(MeshPickingPlugin)
-            .add_plugins(PhysicsPlugins::default());
+            .add_plugins(RapierPhysicsPlugin::<NoUserData>::default());
 
         app.add_plugins(MyAssetPlugin)
             .add_plugins(MyUiPlugin)
@@ -33,9 +32,8 @@ impl Plugin for MyAppPlugin {
         #[cfg(feature = "inspector")]
         {
             use super::inspector::InspectorPlugin;
-            use avian3d::prelude::PhysicsDebugPlugin;
             app.add_plugins(InspectorPlugin)
-                .add_plugins(PhysicsDebugPlugin::default());
+                .add_plugins(RapierDebugRenderPlugin::default());
         }
     }
 }

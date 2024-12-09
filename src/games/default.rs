@@ -3,7 +3,6 @@ use crate::{
     asset::resource::{BaseAssets, DefaultSceneAssets},
     shader::animated_shader::AnimatedShader,
 };
-use avian3d::prelude::*;
 use bevy::{
     color::palettes::css,
     gltf::{GltfMaterialName, GltfMesh, GltfNode, GltfSkin},
@@ -14,6 +13,7 @@ use bevy::{
         primitives::Aabb,
     },
 };
+use bevy_rapier3d::prelude::*;
 use std::{collections::HashMap, f32::consts::PI, time::Duration};
 
 pub struct MyDefaultGamePlugin;
@@ -27,9 +27,10 @@ impl Plugin for MyDefaultGamePlugin {
             Update,
             (
                 // ani_player_added,
-                // draw_gizmo,
-                // player_movement,
-                // player_rotation,
+                draw_gizmo,
+                draw_axes_helper_gizmo,
+                player_movement,
+                player_rotation,
                 // camera_movement,
                 added_default_scene,
             )
@@ -142,9 +143,9 @@ fn setup(
             .spawn((
                 Mesh3d(floor_gltf_mesh.primitives[0].mesh.clone()),
                 MeshMaterial3d(materials.add(Color::WHITE)),
-                RigidBody::Static,
+                RigidBody::Fixed,
                 floor_node.transform,
-                Collider::convex_hull_from_mesh(mesh).unwrap(),
+                // Collider::convex_hull_from_mesh(mesh).unwrap(),
             ))
             .observe(base_pointer_down);
 
@@ -163,7 +164,7 @@ fn setup(
             MeshMaterial3d(materials.add(Color::WHITE)),
             ico_node.transform,
             RigidBody::Dynamic,
-            Collider::convex_hull_from_mesh(mesh).unwrap(),
+            // Collider::convex_hull_from_mesh(mesh).unwrap(),
         ));
 
         let Some(tree_node) = assets_gltfnode.get(&gltf.named_nodes["Tree"]) else {
@@ -353,13 +354,6 @@ fn setup(
 
 fn new_setup(
     mut commands: Commands,
-    // mut meshes: ResMut<Assets<Mesh>>,
-    // mut materials: ResMut<Assets<StandardMaterial>>,
-    // mut ani_materials: ResMut<Assets<AnimatedShader>>,
-    // mut ani_graphs: ResMut<Assets<AnimationGraph>>,
-    // assets_gltfmesh: Res<Assets<GltfMesh>>,
-    // assets_gltfnode: Res<Assets<GltfNode>>,
-    // assets_gltfskin: Res<Assets<GltfSkin>>,
     def_assets: Res<DefaultSceneAssets>,
     gltf_assets: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
@@ -367,19 +361,18 @@ fn new_setup(
     let Some(gltf) = gltf_assets.get(def_assets.default_scene.id()) else {
         return;
     };
-    // for z in gltf.animations.iter().enumerate() {
-    //     //
-    // }
 
-    for (a, b) in &gltf.named_animations {
-        info!("a: {a:?}");
+    let mut animatiton_map = HashMap::<String, AnimationNodeIndex>::new();
+    let mut anmation_graph = AnimationGraph::new();
+    for (name, clip_handle) in &gltf.named_animations {
+        info!("ani: {name}");
+        let idx = anmation_graph.add_clip(clip_handle.clone(), 1., anmation_graph.root);
+        animatiton_map.insert(name.to_string(), idx);
     }
 
-    let (graph, node_indices) = AnimationGraph::from_clips(gltf.animations.clone());
-
-    let graph_handle = graphs.add(graph);
+    let graph_handle = graphs.add(anmation_graph);
     commands.insert_resource(Animations {
-        animations: node_indices,
+        animations: animatiton_map,
         graph: graph_handle,
     });
 
@@ -392,14 +385,13 @@ fn new_setup(
 
 fn added_default_scene(
     mut commands: Commands,
-    q_added_name: Query<(Entity, &Children, &Name), Added<Name>>,
+    q_added_name: Query<(Entity, &Children, &Parent, &Name, &Transform), Added<Name>>,
     q_mesh: Query<(&Mesh3d, &Name)>,
     mut q_animation_player: Query<&mut AnimationPlayer>,
     meshes: Res<Assets<Mesh>>,
     animations: Res<Animations>,
-    graphs: Res<Assets<AnimationGraph>>,
 ) {
-    for (entity, children, name) in &q_added_name {
+    for (entity, children, parent, name, transform) in &q_added_name {
         match name.as_str() {
             "Floor" => {
                 for entity in children {
@@ -409,25 +401,32 @@ fn added_default_scene(
                     let mesh = meshes.get(mesh_handle.id()).unwrap();
                     commands
                         .entity(*entity)
-                        .insert(Collider::convex_hull_from_mesh(mesh).unwrap())
-                        .insert(RigidBody::Static);
+                        // .insert(Collider::convex_hull_from_mesh(mesh).unwrap())
+                        .insert(
+                            Collider::from_bevy_mesh(mesh, &ComputedColliderShape::ConvexHull)
+                                .unwrap(),
+                        )
+                        .insert(RigidBody::Fixed)
+                        .observe(base_pointer_down);
                 }
             }
-            "Coin" => {
+
+            coin if coin.contains("Coin") => {
                 for child_entity in children {
                     let Ok((Mesh3d(mesh_handle), name)) = q_mesh.get(*child_entity) else {
                         break;
                     };
-                    if name.as_str() == "Cylinder.001.0" {
+                    // == "Cylinder.001.0"
+                    if name.as_str().ends_with(".0") {
                         let mesh = meshes.get(mesh_handle.id()).unwrap();
                         let aabb = mesh.compute_aabb().unwrap();
                         let extent = aabb.half_extents;
                         info!("extent: {extent:?}");
 
                         commands.entity(entity).insert((
-                            RigidBody::Kinematic,
-                            Collider::cuboid(extent.x * 2., extent.y * 2., extent.z * 2.),
-                            AngularVelocity(vec3(0., 1., 0.)),
+                            RigidBody::KinematicVelocityBased,
+                            Collider::cuboid(extent.x, extent.y, extent.z),
+                            Velocity::angular(Vec3::new(0., 1., 0.)),
                         ));
                     }
                 }
@@ -438,48 +437,43 @@ fn added_default_scene(
                 };
                 let mut transitions = AnimationTransitions::new();
                 transitions
-                    .play(&mut player, animations.animations[3], Duration::ZERO)
+                    .play(&mut player, animations.animations["Walk"], Duration::ZERO)
                     .repeat();
                 commands
                     .entity(entity)
+                    .insert(Transform::from_xyz(0., -1.5, 0.))
                     .insert(AnimationGraphHandle(animations.graph.clone()))
                     .insert(transitions);
+
+                let z = Transform {
+                    translation: vec3(
+                        transform.translation.x,
+                        transform.translation.y + 1.5,
+                        transform.translation.z,
+                    ),
+                    ..*transform
+                };
+                let new_rigid = commands
+                    .spawn_empty()
+                    .insert(Visibility::default())
+                    .insert(Player)
+                    .insert(z)
+                    .insert(Collider::cuboid(1., 2., 1.))
+                    .insert(RigidBody::Dynamic)
+                    .insert(LockedAxes::ROTATION_LOCKED_X)
+                    .insert(LockedAxes::ROTATION_LOCKED_Z)
+                    .id();
+                commands.entity(new_rigid).set_parent(**parent);
+                commands.entity(entity).set_parent(new_rigid);
             }
             _ => {}
         }
     }
 }
 
-fn fox_spawn(
-    mut commands: Commands,
-    my_assets: Res<DefaultSceneAssets>,
-    gltf_assets: Res<Assets<Gltf>>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
-    q_def_scene: Query<Entity, With<DefaultScene>>,
-) {
-    let Some(gltf) = gltf_assets.get(my_assets.fox.id()) else {
-        return;
-    };
-
-    for (name, clip) in gltf.named_animations.iter() {
-        info!("ani name: {name:?}");
-    }
-    for (name, clip) in gltf.named_nodes.iter() {
-        info!("node name: {name:?}");
-    }
-    // let (graph, node_indices) = AnimationGraph::from_clips(animations.clone());
-    // let graph_handle = graphs.add(graph);
-    // commands.insert_resource(Animations {
-    //     animations: node_indices,
-    //     graph: graph_handle,
-    // });
-    // commands.entity(entity).with_children(|parent| {
-    //     info!("fox_spawn");
-    //     parent.spawn((
-    //         SceneRoot(gltf.scenes[0].clone()),
-    //         Transform::from_xyz(0., 0., 0.).with_scale(vec3(0.01, 0.01, 0.01)),
-    //     ));
-    // });
+fn draw_axes_helper_gizmo(mut gizmos: Gizmos) {
+    let transform = Transform::from_xyz(0., 10., 0.);
+    gizmos.axes(transform, 3.);
 }
 
 fn draw_gizmo(mut gizmos: Gizmos, q_flag: Query<&MoveFlag>) {
@@ -494,25 +488,9 @@ fn draw_gizmo(mut gizmos: Gizmos, q_flag: Query<&MoveFlag>) {
     );
 }
 
-fn ani_player_added(
-    mut commands: Commands,
-    mut players: Query<(Entity, &mut AnimationPlayer), (With<Player>, Added<AnimationPlayer>)>,
-    animations: Res<Animations>,
-) {
-    for (entity, mut player) in &mut players {
-        let mut transitions = AnimationTransitions::new();
-        transitions
-            .play(&mut player, animations.animations[0], Duration::ZERO)
-            .repeat();
-        commands
-            .entity(entity)
-            .insert(AnimationGraphHandle(animations.graph.clone()))
-            .insert(transitions);
-    }
-}
 #[derive(Resource)]
 struct Animations {
-    animations: Vec<AnimationNodeIndex>,
+    animations: HashMap<String, AnimationNodeIndex>,
     graph: Handle<AnimationGraph>,
 }
 
@@ -559,7 +537,14 @@ fn base_pointer_down(
     commands.entity(def_scene).with_children(|parent| {
         parent.spawn((Name::new("MoveFlag"), MoveFlag(pos)));
     });
-
+    let Ok((player_entity, player_tr)) = q_player.get_single() else {
+        return;
+    };
+    let direction =
+        (player_tr.translation - vec3(pos.x, player_tr.translation.y, pos.z)).normalize();
+    // commands
+    //     .entity(player_entity)
+    //     .insert(Velocity::linear(-direction));
     // let Ok((entity, transform)) = q_player.get_single() else {
     //     return;
     // };
@@ -585,22 +570,20 @@ fn player_movement(
     };
 
     let speed = 1.;
-    let direction = (tr.translation - vec3(pos.x, pos.y + 0.5, pos.z)).normalize();
-    let distance = (tr.translation - vec3(pos.x, pos.y + 0.5, pos.z)).length();
+    let direction = (tr.translation - vec3(pos.x, tr.translation.y, pos.z)).normalize();
+    let distance = (tr.translation - vec3(pos.x, tr.translation.y, pos.z)).length();
     // let step = speed * time.delta_secs();
 
     commands
         .entity(player_entity)
-        .insert(LinearVelocity(-direction));
+        .insert(Velocity::linear(-direction * 2.));
 
     // tr.translation = tr.translation - (direction * step);
     // info!("tr.translation {}", tr.translation);
     info!("distance {}", distance);
     if distance <= 0.1 {
         commands.entity(flag_entity).despawn_recursive();
-        commands
-            .entity(player_entity)
-            .insert(LinearVelocity(Vec3::ZERO));
+        commands.entity(player_entity).insert(Velocity::zero());
     }
 }
 fn player_rotation(
@@ -617,17 +600,16 @@ fn player_rotation(
         return;
     };
     let speed = 1.;
-    let direction = (tr.translation - vec3(pos.x, pos.y + 0.5, pos.z)).normalize();
-    let distance = (tr.translation - vec3(pos.x, pos.y + 0.5, pos.z)).length();
+    let direction = (tr.translation - vec3(pos.x, tr.translation.y, pos.z)).normalize();
+    let distance = (tr.translation - vec3(pos.x, pos.y + 1.0, pos.z)).length();
     let step = speed * time.delta_secs();
 
     // let up = Vec3::Y;
     tr.rotation = Quat::from_rotation_arc(Vec3::Z, -direction);
+
     // let z = Quat::from_rotation_arc(Vec3::Z, -direction);
 
-    // commands
-    //     .entity(player_entity)
-    //     .insert(AngularVelocity(vec3(0., direction.y, 0.)));
+    // commands.entity(player_entity).insert(Rotation(z));
 }
 fn camera_movement(
     mut commands: Commands,
