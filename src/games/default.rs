@@ -1,20 +1,18 @@
 use crate::{
     app::{component::MyCamera, state::MyAppState},
-    asset::resource::{BaseAssets, DefaultSceneAssets},
-    shader::animated_shader::AnimatedShader,
+    asset::resource::DefaultSceneAssets,
 };
 use bevy::{
     color::palettes::css,
-    gltf::{GltfMaterialName, GltfMesh, GltfNode, GltfSkin},
-    math::{bounding::Aabb3d, vec3},
+    math::vec3,
     prelude::*,
     render::{
         mesh::{skinning::SkinnedMesh, MeshAabb},
-        primitives::Aabb,
+        view::NoFrustumCulling,
     },
 };
 use bevy_rapier3d::prelude::*;
-use std::{collections::HashMap, f32::consts::PI, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 pub struct MyDefaultGamePlugin;
 
@@ -27,18 +25,29 @@ impl Plugin for MyDefaultGamePlugin {
         app.add_systems(
             Update,
             (
-                // ani_player_added,
                 draw_gizmo,
                 draw_axes_helper_gizmo,
                 player_movement,
                 player_rotation,
-                // camera_movement,
+                camera_movement,
                 added_default_scene,
                 player_ani_changed,
+                added_mesh3d_picking,
+                disable_culling_for_skinned_meshes,
             )
                 .run_if(in_state(MyAppState::DefaultScene)),
         );
         app.register_type::<PlayerAnimationState>();
+    }
+}
+/// System that automatically disables frustum culling for
+/// all skinned meshes, as soon as they are added to the world.
+fn disable_culling_for_skinned_meshes(
+    mut commands: Commands,
+    skinned: Query<Entity, Added<SkinnedMesh>>,
+) {
+    for entity in &skinned {
+        commands.entity(entity).insert(NoFrustumCulling);
     }
 }
 
@@ -71,6 +80,18 @@ fn new_setup(
         DefaultScene,
         Name::new("DefaultScene"),
     ));
+}
+
+fn added_mesh3d_picking(
+    mut commands: Commands,
+    q_added_mesh: Query<(Entity, &Name), Added<Mesh3d>>,
+) {
+    for (entity, name) in &q_added_mesh {
+        // info!("zzzff");
+        if name.as_str() != "Cube.001" {
+            commands.entity(entity).insert(PickingBehavior::IGNORE);
+        }
+    }
 }
 
 fn added_default_scene(
@@ -112,12 +133,29 @@ fn added_default_scene(
 
                     commands.entity(entity).insert((
                         RigidBody::Dynamic,
+                        // Collider::ball(extent.x),
                         Collider::from_bevy_mesh(mesh, &ComputedColliderShape::ConvexHull).unwrap(),
                     ));
                 }
             }
+            text if text.starts_with("Text") => {
+                for child_entity in children {
+                    let Ok((Mesh3d(mesh_handle), name)) = q_mesh.get(*child_entity) else {
+                        break;
+                    };
+                    let mesh = meshes.get(mesh_handle.id()).unwrap();
+                    let aabb = mesh.compute_aabb().unwrap();
+                    let extent = aabb.half_extents;
+                    // info!("extent: {extent:?}");
 
-            coin if coin.contains("Coin") => {
+                    commands.entity(entity).insert((
+                        RigidBody::Dynamic,
+                        Collider::cuboid(extent.x, extent.y, extent.z),
+                        // Collider::from_bevy_mesh(mesh, &ComputedColliderShape::ConvexHull).unwrap(),
+                    ));
+                }
+            }
+            coin if coin.starts_with("Coin") => {
                 for child_entity in children {
                     let Ok((Mesh3d(mesh_handle), name)) = q_mesh.get(*child_entity) else {
                         break;
@@ -165,7 +203,8 @@ fn added_default_scene(
                     .insert(Visibility::default())
                     .insert(Player)
                     .insert(z)
-                    .insert(Collider::cuboid(1., 2., 1.))
+                    .insert(Collider::cylinder(1.5, 1.))
+                    // .insert(Collider::cuboid(1., 2., 1.))
                     .insert(RigidBody::Dynamic)
                     .insert(LockedAxes::ROTATION_LOCKED_X)
                     .insert(LockedAxes::ROTATION_LOCKED_Z)
@@ -339,10 +378,12 @@ fn camera_movement(
     let Ok((_, p_tr)) = q_player.get_single() else {
         return;
     };
+
+    //-12.5, 14.5, 19.0
     c_tr.translation = vec3(
-        p_tr.translation.x - 2.5,
-        p_tr.translation.y + 4.5,
-        p_tr.translation.z + 9.0,
+        p_tr.translation.x - 12.5,
+        p_tr.translation.y + 14.5,
+        p_tr.translation.z + 19.0,
     );
 }
 
