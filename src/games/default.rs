@@ -1,6 +1,9 @@
 use crate::{
-    app::{component::MyCamera, state::MyAppState},
-    asset::resource::DefaultSceneAssets,
+    app::{
+        component::{MyCamera2d, MyCamera3d},
+        state::MyAppState,
+    },
+    asset::resource::{BaseAssets, DefaultSceneAssets},
 };
 use bevy::{
     color::palettes::css,
@@ -8,7 +11,7 @@ use bevy::{
     prelude::*,
     render::{
         mesh::{skinning::SkinnedMesh, MeshAabb},
-        view::NoFrustumCulling,
+        view::{NoFrustumCulling, RenderLayers},
     },
 };
 use bevy_rapier3d::prelude::*;
@@ -34,6 +37,7 @@ impl Plugin for MyDefaultGamePlugin {
                 player_ani_changed,
                 added_mesh3d_picking,
                 disable_culling_for_skinned_meshes,
+                monster_text,
             )
                 .run_if(in_state(MyAppState::DefaultScene)),
         );
@@ -175,10 +179,14 @@ fn added_default_scene(
                     }
                 }
             }
+            "MonsterArmature_Bee" => {
+                commands.entity(entity).insert(MonsterBee);
+            }
             "CharacterArmature" => {
                 let Ok(mut player) = q_animation_player.get_mut(entity) else {
                     return;
                 };
+
                 let mut transitions = AnimationTransitions::new();
                 transitions
                     .play(&mut player, animations.animations["Idle"], Duration::ZERO)
@@ -212,10 +220,16 @@ fn added_default_scene(
                 commands.entity(new_rigid).set_parent(**parent);
                 commands.entity(entity).set_parent(new_rigid);
             }
+            "Gun" => {
+                commands.entity(entity).insert(Visibility::Hidden);
+            }
             _ => {}
         }
     }
 }
+
+#[derive(Component)]
+pub struct MonsterBee;
 
 fn draw_axes_helper_gizmo(mut gizmos: Gizmos) {
     let transform = Transform::from_xyz(0., 10., 0.);
@@ -233,6 +247,62 @@ fn draw_gizmo(mut gizmos: Gizmos, q_flag: Query<&MoveFlag>) {
         css::BLACK,
     );
 }
+
+pub fn monster_text(
+    mut commands: Commands,
+    mut q_camera3d: Query<(Entity, &GlobalTransform, &Camera), (With<MyCamera3d>)>,
+    mut q_camera2d: Query<(Entity, &GlobalTransform, &Camera), (With<MyCamera2d>)>,
+    q_bee: Query<(Entity, &Transform), With<MonsterBee>>,
+    mut q_bee_text: Query<
+        (Entity, &mut Text2d, &mut Transform),
+        (With<BeeText>, Without<MonsterBee>),
+    >,
+    base_asset: Res<BaseAssets>,
+) {
+    let Ok((camera_entity, camera3d_transform, camera3d)) = q_camera3d.get_single() else {
+        return;
+    };
+    let Ok((camera_entity, camera2d_transform, camera2d)) = q_camera2d.get_single() else {
+        return;
+    };
+    let Ok((bee_entity, bee_trsnform)) = q_bee.get_single() else {
+        return;
+    };
+
+    // todo: replate unwrap
+    let Ok(viewport) = camera3d.world_to_viewport(camera3d_transform, bee_trsnform.translation)
+    else {
+        return;
+    };
+    let Ok(bee_2d_pos) = camera2d.viewport_to_world_2d(camera2d_transform, viewport) else {
+        return;
+    };
+
+    if let Ok((_, text, mut tr)) = q_bee_text.get_single_mut() {
+        tr.translation.x = bee_2d_pos.x;
+        tr.translation.y = bee_2d_pos.y;
+    } else {
+        commands.spawn((
+            BeeText,
+            Text2d::new("안녕!"),
+            TextFont {
+                font: base_asset.font.clone(),
+                ..default()
+            },
+            Transform::from_xyz(bee_2d_pos.x, bee_2d_pos.y, 0.),
+            RenderLayers::layer(1),
+        ));
+    }
+
+    // commands.entity(bee_entity).with_children(|parent| {
+    //     parent
+    //         .spawn(Text2d::new("text!!!"))
+    //         .insert(Transform::from_xyz(zzzz.x, zzzz.y, 1.));
+    // });
+}
+
+#[derive(Component)]
+pub struct BeeText;
 
 #[derive(Resource)]
 pub struct Animations {
@@ -369,10 +439,10 @@ fn player_rotation(
 }
 fn camera_movement(
     mut commands: Commands,
-    mut q_camera: Query<(Entity, &mut Transform), (With<MyCamera>, Without<Player>)>,
+    mut q_camera3d: Query<(Entity, &mut Transform), (With<MyCamera3d>, Without<Player>)>,
     q_player: Query<(Entity, &Transform), With<Player>>,
 ) {
-    let Ok((_, mut c_tr)) = q_camera.get_single_mut() else {
+    let Ok((_, mut c_tr)) = q_camera3d.get_single_mut() else {
         return;
     };
     let Ok((_, p_tr)) = q_player.get_single() else {
