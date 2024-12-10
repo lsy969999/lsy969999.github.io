@@ -46,5 +46,8 @@ fn inspector_ui(world: &mut World) {
     });
 }
 fn setup(mut commands: Commands) {
-    commands.spawn(PerfUiDefaultEntries::default());
+    commands.spawn((
+        PerfUiDefaultEntries::default(),
+        // PerfUiSystemEntries::default(),
+    ));
 }
