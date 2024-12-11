@@ -8,7 +8,7 @@ wasm-bindgen --out-name $name \
   --target web target/wasm32-unknown-unknown/release/$name.wasm
 
 # wasm build 에의해 생성되는 fetch를 추적가능한 fetch로 바꾸기
-#sed -i 's/module_or_path = fetch(module_or_path)/module_or_path = bevyProgressiveFetch(module_or_path)/' dist2/${name}.js
+#sed -i 's/module_or_path = fetch(module_or_path)/module_or_path = bevyProgressiveFetch(module_or_path)/' dist2/${name}.js 
 
 if [ "$(uname)" = "Darwin" ]; then
   sed -i '' 's/module_or_path = fetch(module_or_path)/module_or_path = bevyProgressiveFetch(module_or_path)/' dist2/${name}.js
