@@ -1,29 +1,25 @@
 name: Deploy to GitHub Pages
 
 on:
-    push:
-      branches:
-        - main
-  
-  jobs:
-    deploy:
-      runs-on: ubuntu-latest
-  
-      steps:
-        # 1. Repository Checkout
-        - name: Checkout repository
-          uses: actions/checkout@v3
-  
+  push:
+    branches:
+      - main
 
-        # 2. Run the build script
-        - name: Run build script
-          run: |
-            chmod +x ./build.sh
-            ./build.sh
+jobs:
+  # Single deploy job since we're just deploying
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  
-        - name: Deploy to GitHub Pages
-          uses: peaceiris/actions-gh-pages@v3
-          with:
-            github_token: ${{ secrets.GITHUB_TOKEN }}
-            publish_dir: ./test
+      - name: Run build script
+        run: |
+          chmod +x ./build script.sh
+          ./build script.sh
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dis
