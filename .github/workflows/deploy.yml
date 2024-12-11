@@ -15,8 +15,8 @@ jobs:
 
       - name: Run build script
         run: |
-          chmod +x ./build script.sh
-          ./build script.sh
+          chmod +x ./build.sh
+          ./build.sh
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
