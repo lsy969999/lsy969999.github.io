@@ -25,8 +25,8 @@ jobs:
           cargo install wasm-bindgen-cli --version 0.2.97
           wasm-bindgen --version
 
-        #   chmod +x ./build.sh
-        #   ./build.sh
+          chmod +x ./build.sh
+          ./build.sh
 
     #   - name: Deploy to GitHub Pages
     #     uses: peaceiris/actions-gh-pages@v3
