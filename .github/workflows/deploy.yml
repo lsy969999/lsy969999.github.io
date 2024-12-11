@@ -15,10 +15,11 @@ jobs:
 
       - name: Run build script
         run: |
+          rustc --version
+
           sudo apt install binaryen
           rustup target add wasm32-unknown-unknown
           cargo install wasm-bindgen-cli
-          cargo update -p wasm-bindgen --precise 0.2.99
           chmod +x ./build.sh
           ./build.sh
 
