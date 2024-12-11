@@ -14,5 +14,5 @@ echo "`ls -al`"
 echo "`ls -al dist`"
 wasm-opt -Oz --output optimized.wasm dist/${name}_bg.wasm
 mv optimized.wasm dist/${name}_bg.wasm
-
-echo $(stat -f %z dist/${name}_bg.wasm)
+echo "`ls -al dist`"
+# echo $(stat -f %z dist/${name}_bg.wasm)
