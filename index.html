@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hi!</title>
+</head>
+<body>
+    <progress style="position: absolute;" id="progress" max="100" value="0"></progress>
+
+    <canvas id="target"></canvas>
+    <script src="./js/progressive_fetch.js"></script>
+    <script type="module">
+        import init from './dist/lsy969999_github_io.js'
+        
+        window.bevyProgressiveFetch = async (resource) => {
+            return progressive_fetch(resource, 17368550, {
+                start: (length) => {
+                    console.log('[progressive_fetch] start', length)
+                },
+                progress: (progress, length) => {
+                    const per = 100 * progress/length;
+                    console.log('[progressive_fetch] update', progress, length, per)
+                    document.getElementById('progress').value = per
+                   
+                },
+                flush: (length) => {
+                    console.log('[progressive_fetch] flush', length)
+                    document.getElementById('progress').style = 'display: none'
+                }
+            })
+        }
+        
+        await init()
+    </script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+[package]
+name = "lsy969999_github_io"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["inspector"]
+inspector = ["bevy-inspector-egui", "iyes_perf_ui"]
+
+[dependencies]
+bevy-inspector-egui = { version = "0.28.0", optional = true, features = [
+    "bevy_image",
+    "bevy_pbr",
+    "bevy_render",
+    "egui_open_url",
+], default-features = false }
+bevy = { version = "0.15.0", features = [
+    # "android-game-activity",
+    # "android_shared_stdcxx",
+    "animation",
+    "bevy_asset",
+    # "bevy_audio",
+    "bevy_color",
+    # "bevy_core_pipeline",
+    # "bevy_gilrs",
+    "bevy_gizmos",
+    "bevy_gltf",
+    "bevy_mesh_picking_backend",
+    "bevy_pbr",
+    "bevy_picking",
+    # "bevy_render",
+    # "bevy_scene",
+    # "bevy_sprite",
+    # "bevy_sprite_picking_backend",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_ui_picking_backend",
+    "bevy_window",
+    "bevy_winit",
+    # "custom_cursor",
+    "default_font",
+    # "hdr",
+    # "multi_threaded",
+    "png",
+    # "smaa_luts",
+    # "sysinfo_plugin",
+    "tonemapping_luts",
+    # "vorbis",
+    "webgl2",
+    # "x11",
+    # /////// optional features ///////
+    # "trace_tracy", # cargo run --release --features bevy/trace_tracy
+    # "trace_tracy_memory", # cargo run --release --features bevy/trace_tracy_memory
+], default-features = false }
+iyes_perf_ui = { git = "https://github.com/IyesGames/iyes_perf_ui.git", branch = "main", optional = true }
+# ron = "0.8.1"
+# thiserror = "2.0.4"
+serde = { version = "1.0.215", features = ["derive"] }
+# bevy_atmosphere = "0.11.0"
+bevy_asset_loader = { version = "0.22.0" }
+bevy_common_assets = { version = "0.12.0", features = ["ron"] }
+# avian3d = { git = "https://github.com/Jondolf/avian", branch = "main" }
+bevy_rapier3d = { version = "0.28.0" }
+bevy_tweening = "0.12.0"
+
+[profile.release]
+opt-level = 'z'         # 최적의 크기 감소를 위한 최적화 (z는 크기 기준, s는 성능 기준)
+lto = true              # 'thin'보다 더 높은 수준의 LTO (fat은 더 많은 크기 최적화 제공)
+codegen-units = 1       # 코드 생성 단위를 1로 설정하여 최적화
+panic = 'abort'         # 패닉 시 스택 추적을 제외하여 크기 감소
+debug = false           # 디버그 심볼 제거
+overflow-checks = false # 오버플로 체크 제거
+strip = true
