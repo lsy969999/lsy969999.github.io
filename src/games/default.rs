@@ -15,7 +15,7 @@ use bevy::{
     },
 };
 use bevy_rapier3d::prelude::*;
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, f32::consts::PI, time::Duration};
 
 pub struct MyDefaultGamePlugin;
 
@@ -38,6 +38,8 @@ impl Plugin for MyDefaultGamePlugin {
                 added_mesh3d_picking,
                 disable_culling_for_skinned_meshes,
                 monster_text,
+                read_result_system,
+                // character_controller,
             )
                 .run_if(in_state(MyAppState::DefaultScene)),
         );
@@ -179,6 +181,22 @@ fn added_default_scene(
                     }
                 }
             }
+            "Stair" => {
+                for entity in children {
+                    let Ok((Mesh3d(mesh_handle), _)) = q_mesh.get(*entity) else {
+                        break;
+                    };
+                    let mesh = meshes.get(mesh_handle.id()).unwrap();
+                    commands
+                        .entity(*entity)
+                        // .insert(Collider::convex_hull_from_mesh(mesh).unwrap())
+                        .insert(
+                            Collider::from_bevy_mesh(mesh, &ComputedColliderShape::ConvexHull)
+                                .unwrap(),
+                        )
+                        .insert(RigidBody::Fixed);
+                }
+            }
             "MonsterArmature_Bee" => {
                 commands.entity(entity).insert(MonsterBee);
             }
@@ -211,11 +229,17 @@ fn added_default_scene(
                     .insert(Visibility::default())
                     .insert(Player)
                     .insert(z)
-                    .insert(Collider::cylinder(1.5, 1.))
+                    .insert(Velocity::zero())
+                    .insert(Collider::capsule(vec3(0., -0.4, 0.), vec3(0., 1., 0.), 1.))
                     // .insert(Collider::cuboid(1., 2., 1.))
-                    .insert(RigidBody::Dynamic)
-                    .insert(LockedAxes::ROTATION_LOCKED_X)
-                    .insert(LockedAxes::ROTATION_LOCKED_Z)
+                    // .insert(RigidBody::Dynamic)
+                    // .insert(LockedAxes::TRANSLATION_LOCKED)
+                    // .insert(LockedAxes::ROTATION_LOCKED_Z)
+                    .insert(RigidBody::KinematicPositionBased)
+                    .insert(KinematicCharacterController {
+                        // snap_to_ground: Some(CharacterLength::Absolute(0.5)),
+                        ..default()
+                    })
                     .id();
                 commands.entity(new_rigid).set_parent(**parent);
                 commands.entity(entity).set_parent(new_rigid);
@@ -356,14 +380,31 @@ fn base_pointer_down(
     });
 
     for (_entity, mut state) in &mut q_player_ani_state {
-        *state = PlayerAnimationState::Walking;
+        if *state != PlayerAnimationState::Walking {
+            *state = PlayerAnimationState::Walking;
+        }
     }
 
     let Ok((player_entity, player_tr)) = q_player.get_single() else {
         return;
     };
+    let speed = 1.;
     let direction =
         (player_tr.translation - vec3(pos.x, player_tr.translation.y, pos.z)).normalize();
+    // let distance = (player_tr.translation - vec3(pos.x, pos.y + 1.0, pos.z)).length();
+    // player_tr.rotation = Quat::from_rotation_arc(Vec3::Z, -direction);
+    // let mut ttt = player_tr.clone();
+    // let start = ttt.rotation.to_euler(EulerRot::XYZ).1;
+    // ttt.rotation = Quat::from_rotation_arc(Vec3::Z, -direction);
+    // let end = ttt.rotation.to_euler(EulerRot::XYZ).1;
+
+    // info!(
+    //     "start, end {} {} {}",
+    //     start.to_degrees(),
+    //     end.to_degrees(),
+    //     end.to_degrees() - start.to_degrees()
+    // );
+
     // commands
     //     .entity(player_entity)
     //     .insert(Velocity::linear(-direction));
@@ -376,64 +417,208 @@ fn base_pointer_down(
 
 #[derive(Component)]
 pub struct Player;
+fn read_result_system(
+    mut commands: Commands,
+    controllers: Query<(Entity, &KinematicCharacterControllerOutput)>,
+    mut q_contoller: Query<&mut KinematicCharacterController>,
+    time: Res<Time>,
+) {
+    for (entity, output) in controllers.iter() {
+        // println!(
+        //     "Entity {:?} moved by {:?} and touches the ground: {:?}",
+        //     entity, output.effective_translation, output.grounded
+        // );
+        let Ok(mut controller) = q_contoller.get_mut(entity) else {
+            return;
+        };
+        // info!("asdf");
+        // if let Some(_) = controller.translation {
+        //     info!(" some !");
+        // } else {
+        //     info!(" none !");
+        // }
+        // controller.translation = Some(vec3(0., -9.8, 0.) * time.delta_secs());
+        // if let Some(mut trs) = controller.translation {
+        //     info!("minus gracyt");
+
+        //     trs.y -= 9.8 * time.delta_secs();
+        // }
+    }
+}
+
+fn character_controller(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+    mut query: Query<
+        (
+            &mut KinematicCharacterController,
+            &mut Transform,
+            Option<&KinematicCharacterControllerOutput>,
+        ),
+        With<Player>,
+    >,
+) {
+    const GRAVITY: f32 = -9.8; // 중력 가속도
+    const MOVE_SPEED: f32 = 5.0; // 이동 속도
+    const JUMP_FORCE: f32 = 5.0; // 점프 속도
+
+    for (mut controller, mut transform, output) in query.iter_mut() {
+        let mut movement = Vec3::ZERO;
+
+        // WASD 키 입력 처리
+        if keyboard_input.pressed(KeyCode::KeyW) {
+            movement.z -= 1.0;
+        }
+        if keyboard_input.pressed(KeyCode::KeyS) {
+            movement.z += 1.0;
+        }
+        if keyboard_input.pressed(KeyCode::KeyA) {
+            movement.x -= 1.0;
+        }
+        if keyboard_input.pressed(KeyCode::KeyD) {
+            movement.x += 1.0;
+        }
+
+        // 방향 벡터 정규화
+        if movement.length_squared() > 0.0 {
+            movement = movement.normalize() * MOVE_SPEED * time.delta_secs();
+        }
+
+        // 중력 적용
+        let mut velocity = Vec3::new(movement.x, 0.0, movement.z);
+        if let Some(output) = output {
+            if !output.grounded {
+                // 바닥에 닿아있지 않을 때
+                velocity.y += GRAVITY;
+            }
+        }
+
+        // 점프 처리
+        // if let Some(output) = output {
+        if keyboard_input.just_pressed(KeyCode::Space) {
+            velocity.y = JUMP_FORCE;
+        }
+        // }
+
+        // 이동 벡터 설정
+        controller.translation = Some(velocity);
+    }
+}
 
 fn player_movement(
+    time: Res<Time>,
     mut commands: Commands,
     q_flag: Query<(Entity, &MoveFlag)>,
-    mut q_player: Query<(Entity, &mut Transform), With<Player>>,
-    time: Res<Time>,
+    mut q_player: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut KinematicCharacterController,
+            Option<&KinematicCharacterControllerOutput>,
+        ),
+        With<Player>,
+    >,
     mut q_player_ani_state: Query<(Entity, &mut PlayerAnimationState), With<PlayerAnimationState>>,
 ) {
     //
-    let Ok((flag_entity, MoveFlag(pos))) = q_flag.get_single() else {
+    let Ok((player_entity, mut player_tr, mut controller, output)) = q_player.get_single_mut()
+    else {
         return;
     };
-    let Ok((player_entity, mut tr)) = q_player.get_single_mut() else {
-        return;
-    };
 
-    let speed = 1.;
-    let direction = (tr.translation - vec3(pos.x, tr.translation.y, pos.z)).normalize();
-    let distance = (tr.translation - vec3(pos.x, tr.translation.y, pos.z)).length();
-    // let step = speed * time.delta_secs();
+    if let Ok((flag_entity, MoveFlag(flag_pos))) = q_flag.get_single() {
+        let speed = 3.;
 
-    commands
-        .entity(player_entity)
-        .insert(Velocity::linear(-direction * 2.));
-
-    // tr.translation = tr.translation - (direction * step);
-    // info!("tr.translation {}", tr.translation);
-    // info!("distance {}", distance);
-    if distance <= 0.1 {
-        commands.entity(flag_entity).despawn_recursive();
-        commands.entity(player_entity).insert(Velocity::zero());
-        for (_entity, mut state) in &mut q_player_ani_state {
-            *state = PlayerAnimationState::Idle;
+        let sub = vec3(flag_pos.x, player_tr.translation.y, flag_pos.z) - player_tr.translation;
+        let mut direction = (sub).normalize();
+        let distance = (sub).length();
+        // let step = speed * time.delta_secs();
+        direction = direction * speed * time.delta_secs();
+        let mut velocity = Vec3::new(direction.x, 0.0, direction.z);
+        if let Some(output) = output {
+            if !output.grounded {
+                // 바닥에 닿아있지 않을 때
+                velocity.y += (-9.8) * time.delta_secs();
+            }
         }
-    }
+        // info!("driect {}", direction);
+        controller.translation = Some(velocity);
+
+        // commands
+        //     .entity(player_entity)
+        //     .insert(Velocity::linear(-direction * 2.));
+        // velocity.linvel = direction * 2.;
+
+        // tr.translation = tr.translation - (direction * step);
+        // info!("tr.translation {}", tr.translation);
+        // info!("distance {}", distance);
+        if distance <= 0.1 {
+            commands.entity(flag_entity).despawn_recursive();
+            // commands.entity(player_entity).insert(Velocity::zero());
+            // velocity.linvel = vec3(0., 0., 0.);
+            // velocity.angvel = vec3(0., 0., 0.);
+            // controller.translation = None;
+            for (_entity, mut state) in &mut q_player_ani_state {
+                *state = PlayerAnimationState::Idle;
+            }
+        }
+    } else {
+        let mut velocity = Vec3::new(-0., 0.0, 0.);
+        if let Some(output) = output {
+            if !output.grounded {
+                // 바닥에 닿아있지 않을 때
+                velocity.y += (-9.8) * time.delta_secs();
+            }
+        }
+        controller.translation = Some(velocity);
+    };
 }
 fn player_rotation(
     mut commands: Commands,
     q_flag: Query<(Entity, &MoveFlag)>,
-    mut q_player: Query<(Entity, &mut Transform), With<Player>>,
+    mut q_player: Query<(Entity, &mut Transform, &mut Velocity), With<Player>>,
     time: Res<Time>,
 ) {
     //
-    let Ok((flag_entity, MoveFlag(pos))) = q_flag.get_single() else {
+    let Ok((flag_entity, MoveFlag(flag_pos))) = q_flag.get_single() else {
         return;
     };
-    let Ok((player_entity, mut tr)) = q_player.get_single_mut() else {
+    let Ok((player_entity, mut player_tr, mut velocity)) = q_player.get_single_mut() else {
         return;
     };
     let speed = 1.;
-    let direction = (tr.translation - vec3(pos.x, tr.translation.y, pos.z)).normalize();
-    let distance = (tr.translation - vec3(pos.x, pos.y + 1.0, pos.z)).length();
+    let sub = vec3(flag_pos.x, player_tr.translation.y, flag_pos.z) - player_tr.translation;
+    let direction = (sub).normalize();
+    let distance = (sub).length();
     let step = speed * time.delta_secs();
 
+    // let mut endrot = tr.clone();
+    // endrot.rotation = Quat::from_rotation_arc(Vec3::Z, -direction);
+
+    // info!(
+    //     "player tr rot: {:?}, end rot; {:?}",
+    //     tr.rotation, endrot.rotation
+    // );
+    // let e1 = tr.rotation.to_euler(EulerRot::XYX);
+    // let e2: (f32, f32, f32) = endrot.rotation.to_euler(EulerRot::XYX);
+
+    // info!("e1 e2 tr rot: {:?}, end rot; {:?}", e1.1, e2.1);
+    // info!("e2 - e1: {}", e2.1 - e1.1);
+
     // let up = Vec3::Y;
-    tr.rotation = Quat::from_rotation_arc(Vec3::Z, -direction);
+    player_tr.rotation = Quat::from_rotation_arc(Vec3::Z, direction);
 
     // let z = Quat::from_rotation_arc(Vec3::Z, -direction);
+
+    // if !(e2.1 - e1.1 < 0.1) {
+    //     velocity.angvel = vec3(0., 1., 0.);
+    // }
+    // velocity.angvel = vec3(0., 0.5, 0.);
+    // tr.rotate_y(PI / 10.);
+
+    // commands
+    //     .entity(player_entity)
+    //     .insert(Velocity::angular(vec3(0., 11., 0.)));
 
     // commands.entity(player_entity).insert(Rotation(z));
 }
@@ -457,18 +642,21 @@ fn camera_movement(
     );
 }
 
-#[derive(Component, Debug, Reflect)]
+#[derive(Component, Debug, Reflect, PartialEq, Eq)]
 pub enum PlayerAnimationState {
     Idle,
     Walking,
 }
 pub fn player_ani_changed(
     mut commands: Commands,
-    q_player_ani: Query<(Entity, &PlayerAnimationState), Changed<PlayerAnimationState>>,
+    mut q_player_ani: Query<
+        (Entity, &PlayerAnimationState, &mut AnimationTransitions),
+        Changed<PlayerAnimationState>,
+    >,
     animations: Res<Animations>,
     mut q_animation_player: Query<&mut AnimationPlayer>,
 ) {
-    for (entity, state) in &q_player_ani {
+    for (entity, state, mut transitions) in &mut q_player_ani {
         info!("state:{:?}", state);
         let Ok(mut player) = q_animation_player.get_mut(entity) else {
             return;
@@ -477,17 +665,21 @@ pub fn player_ani_changed(
             PlayerAnimationState::Idle => "Idle",
             _ => "Walk",
         };
-        player.stop_all();
+        // player.stop_all();
         info!("str: {str}");
-        let mut transitions = AnimationTransitions::new();
+        // let mut transitions = AnimationTransitions::new();
         transitions
-            .play(&mut player, animations.animations[str], Duration::ZERO)
+            .play(
+                &mut player,
+                animations.animations[str],
+                Duration::from_millis(250),
+            )
             .repeat();
-        commands
-            .entity(entity)
-            // .insert(Transform::from_xyz(0., -1.5, 0.))
-            // .insert(AnimationGraphHandle(animations.graph.clone()))
-            // .insert(PlayerAnimationState::Idle)
-            .insert(transitions);
+
+        // commands.entity(entity)
+        // .insert(Transform::from_xyz(0., -1.5, 0.))
+        // .insert(AnimationGraphHandle(animations.graph.clone()))
+        // .insert(PlayerAnimationState::Idle)
+        // .insert(transitions);
     }
 }

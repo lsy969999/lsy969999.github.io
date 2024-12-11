@@ -1,6 +1,14 @@
 use std::f32::consts::PI;
 
-use bevy::{color::palettes::css, prelude::*, render::view::RenderLayers};
+use bevy::{
+    color::palettes::css,
+    core_pipeline::{
+        fxaa::Fxaa,
+        prepass::{DeferredPrepass, DepthPrepass, MotionVectorPrepass},
+    },
+    prelude::*,
+    render::view::RenderLayers,
+};
 
 use super::{
     component::{MyCamera2d, MyCamera3d},
@@ -42,15 +50,24 @@ pub(super) fn setup_camera_light(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
         Camera {
+            // hdr: false,
             // clear_color: ClearColorConfig::Custom(css::WHITE.into()),
             ..default()
-        },
+        }, // MSAA needs to be off for Deferred rendering
+        // Msaa::Off,
+        // DepthPrepass,
+        // MotionVectorPrepass,
+        // DeferredPrepass,
+        // Fxaa::default(),
         MyCamera3d,
         Transform::from_xyz(-12.5, 14.5, 19.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
     commands.spawn((
         Camera2d::default(),
+        // Msaa::Off,
+        // DepthPrepass,
+        // DeferredPrepass,
         MyCamera2d,
         Camera {
             order: 1,
