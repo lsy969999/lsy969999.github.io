@@ -15,6 +15,7 @@ jobs:
 
       - name: Run build script
         run: |
+          rustup target add wasm32-unknown-unknown
           chmod +x ./build.sh
           ./build.sh
 
