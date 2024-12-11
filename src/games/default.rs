@@ -219,7 +219,7 @@ fn added_default_scene(
                 let z = Transform {
                     translation: vec3(
                         transform.translation.x,
-                        transform.translation.y + 1.5,
+                        transform.translation.y + 2.5,
                         transform.translation.z,
                     ),
                     ..*transform
@@ -230,7 +230,7 @@ fn added_default_scene(
                     .insert(Player)
                     .insert(z)
                     .insert(Velocity::zero())
-                    .insert(Collider::capsule(vec3(0., -0.4, 0.), vec3(0., 1., 0.), 1.))
+                    .insert(Collider::capsule(vec3(0., -0.6, 0.), vec3(0., 1., 0.), 1.))
                     // .insert(Collider::cuboid(1., 2., 1.))
                     // .insert(RigidBody::Dynamic)
                     // .insert(LockedAxes::TRANSLATION_LOCKED)
@@ -355,6 +355,7 @@ fn clear_scene(
 
 fn base_pointer_down(
     down: Trigger<Pointer<Down>>,
+    time: Res<Time>,
     buttons: Res<ButtonInput<MouseButton>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -364,7 +365,7 @@ fn base_pointer_down(
     q_player: Query<(Entity, &Transform), With<Player>>,
     mut q_player_ani_state: Query<(Entity, &mut PlayerAnimationState), With<PlayerAnimationState>>,
 ) {
-    let Some(pos) = down.hit.position else {
+    let Some(flag_pos) = down.hit.position else {
         return;
     };
     let Ok(def_scene) = q_def_scene.get_single() else {
@@ -376,7 +377,7 @@ fn base_pointer_down(
     }
 
     commands.entity(def_scene).with_children(|parent| {
-        parent.spawn((Name::new("MoveFlag"), MoveFlag(pos)));
+        parent.spawn((Name::new("MoveFlag"), MoveFlag(flag_pos)));
     });
 
     for (_entity, mut state) in &mut q_player_ani_state {
@@ -389,8 +390,24 @@ fn base_pointer_down(
         return;
     };
     let speed = 1.;
-    let direction =
-        (player_tr.translation - vec3(pos.x, player_tr.translation.y, pos.z)).normalize();
+    let sub = vec3(flag_pos.x, player_tr.translation.y, flag_pos.z) - player_tr.translation;
+    let mut direction = (sub).normalize();
+
+    // let up = Vec3::Y;
+    // let z = Quat::from_rotation_arc(Vec3::Z, direction);
+
+    // player_tr.rotation = player_tr.rotation.slerp(z, time.delta_secs() * 10.);
+
+    // let tween: Tween<Transform> = Tween::new(
+    //     EaseFunction::QuarticInOut,
+    //     Duration::from_millis(250),
+    //     TransformRotationLens {
+    //         start: player_tr.rotation,
+    //         end: z,
+    //     },
+    // );
+
+    // commands.entity(player_entity).insert(Animator::new(tween));
     // let distance = (player_tr.translation - vec3(pos.x, pos.y + 1.0, pos.z)).length();
     // player_tr.rotation = Quat::from_rotation_arc(Vec3::Z, -direction);
     // let mut ttt = player_tr.clone();
@@ -606,7 +623,21 @@ fn player_rotation(
     // info!("e2 - e1: {}", e2.1 - e1.1);
 
     // let up = Vec3::Y;
-    player_tr.rotation = Quat::from_rotation_arc(Vec3::Z, direction);
+    let z = Quat::from_rotation_arc(Vec3::Z, direction);
+
+    player_tr.rotation = player_tr.rotation.slerp(z, time.delta_secs() * 10.);
+
+    // let tween = Tween::new(
+    //     EaseFunction::QuarticInOut,
+    //     Duration::from_millis(250),
+    //     TransformRotationLens {
+    //         start: player_tr.rotation,
+    //         end: z,
+    //     },
+    // );
+
+    // commands.entity(player_entity).insert(Animator::new(tween));
+    // player_tr.rotation = z;
 
     // let z = Quat::from_rotation_arc(Vec3::Z, -direction);
 

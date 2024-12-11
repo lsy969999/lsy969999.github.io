@@ -6,6 +6,7 @@ use crate::{
 };
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
+use bevy_tweening::TweeningPlugin;
 use state::MyAppState;
 use system::{setup_camera_light, start_state};
 pub mod component;
@@ -19,6 +20,7 @@ impl Plugin for MyAppPlugin {
         app.init_state::<MyAppState>();
 
         app.add_plugins(MeshPickingPlugin)
+            .add_plugins(TweeningPlugin)
             .add_plugins(RapierPhysicsPlugin::<NoUserData>::default());
 
         app.add_plugins(MyAssetPlugin)
