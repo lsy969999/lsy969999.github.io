@@ -39,11 +39,13 @@ impl Plugin for MyDefaultGamePlugin {
                 disable_culling_for_skinned_meshes,
                 monster_text,
                 read_result_system,
+                monster_bee_ani_changed,
                 // character_controller,
             )
                 .run_if(in_state(MyAppState::DefaultScene)),
         );
         app.register_type::<PlayerAnimationState>();
+        app.register_type::<MonsterBeeAnimationState>();
     }
 }
 /// System that automatically disables frustum culling for
@@ -76,7 +78,11 @@ fn new_setup(
     }
 
     let graph_handle = graphs.add(anmation_graph);
-    commands.insert_resource(Animations {
+    commands.insert_resource(PlayerAnimations {
+        animations: animatiton_map.clone(),
+        graph: graph_handle.clone(),
+    });
+    commands.insert_resource(MonsterBeeAnimations {
         animations: animatiton_map,
         graph: graph_handle,
     });
@@ -106,7 +112,8 @@ fn added_default_scene(
     q_mesh: Query<(&Mesh3d, &Name)>,
     mut q_animation_player: Query<&mut AnimationPlayer>,
     meshes: Res<Assets<Mesh>>,
-    animations: Res<Animations>,
+    player_animations: Res<PlayerAnimations>,
+    bee_animations: Res<PlayerAnimations>,
 ) {
     for (entity, children, parent, name, transform) in &q_added_name {
         match name.as_str() {
@@ -116,13 +123,16 @@ fn added_default_scene(
                         break;
                     };
                     let mesh = meshes.get(mesh_handle.id()).unwrap();
+                    let aabb = mesh.compute_aabb().unwrap();
+                    let extent = aabb.half_extents;
                     commands
                         .entity(*entity)
                         // .insert(Collider::convex_hull_from_mesh(mesh).unwrap())
-                        .insert(
-                            Collider::from_bevy_mesh(mesh, &ComputedColliderShape::ConvexHull)
-                                .unwrap(),
-                        )
+                        // .insert(
+                        //     Collider::from_bevy_mesh(mesh, &ComputedColliderShape::ConvexHull)
+                        //         .unwrap(),
+                        // )
+                        .insert(Collider::cuboid(extent.x, extent.y, extent.z))
                         .insert(RigidBody::Fixed)
                         .observe(base_pointer_down);
                 }
@@ -198,7 +208,23 @@ fn added_default_scene(
                 }
             }
             "MonsterArmature_Bee" => {
-                commands.entity(entity).insert(MonsterBee);
+                let Ok(mut player) = q_animation_player.get_mut(entity) else {
+                    return;
+                };
+
+                let mut transitions = AnimationTransitions::new();
+                transitions
+                    .play(
+                        &mut player,
+                        bee_animations.animations["Bee_Flying"],
+                        Duration::ZERO,
+                    )
+                    .repeat();
+                commands
+                    .entity(entity)
+                    .insert(MonsterBee)
+                    .insert(AnimationGraphHandle(bee_animations.graph.clone()))
+                    .insert(MonsterBeeAnimationState::Flying);
             }
             "CharacterArmature" => {
                 let Ok(mut player) = q_animation_player.get_mut(entity) else {
@@ -207,12 +233,16 @@ fn added_default_scene(
 
                 let mut transitions = AnimationTransitions::new();
                 transitions
-                    .play(&mut player, animations.animations["Idle"], Duration::ZERO)
+                    .play(
+                        &mut player,
+                        player_animations.animations["Idle"],
+                        Duration::ZERO,
+                    )
                     .repeat();
                 commands
                     .entity(entity)
                     .insert(Transform::from_xyz(0., -1.5, 0.))
-                    .insert(AnimationGraphHandle(animations.graph.clone()))
+                    .insert(AnimationGraphHandle(player_animations.graph.clone()))
                     .insert(PlayerAnimationState::Idle)
                     .insert(transitions);
 
@@ -292,7 +322,8 @@ pub fn monster_text(
     let Ok((bee_entity, bee_trsnform)) = q_bee.get_single() else {
         return;
     };
-
+    let mut bee_trsnform = bee_trsnform.clone();
+    bee_trsnform.translation.y += 2.;
     // todo: replate unwrap
     let Ok(viewport) = camera3d.world_to_viewport(camera3d_transform, bee_trsnform.translation)
     else {
@@ -329,7 +360,12 @@ pub fn monster_text(
 pub struct BeeText;
 
 #[derive(Resource)]
-pub struct Animations {
+pub struct PlayerAnimations {
+    pub animations: HashMap<String, AnimationNodeIndex>,
+    pub graph: Handle<AnimationGraph>,
+}
+#[derive(Resource)]
+pub struct MonsterBeeAnimations {
     pub animations: HashMap<String, AnimationNodeIndex>,
     pub graph: Handle<AnimationGraph>,
 }
@@ -678,13 +714,19 @@ pub enum PlayerAnimationState {
     Idle,
     Walking,
 }
+
+#[derive(Component, Debug, Reflect, PartialEq, Eq)]
+pub enum MonsterBeeAnimationState {
+    Flying,
+    Walking,
+}
 pub fn player_ani_changed(
     mut commands: Commands,
     mut q_player_ani: Query<
         (Entity, &PlayerAnimationState, &mut AnimationTransitions),
         Changed<PlayerAnimationState>,
     >,
-    animations: Res<Animations>,
+    animations: Res<PlayerAnimations>,
     mut q_animation_player: Query<&mut AnimationPlayer>,
 ) {
     for (entity, state, mut transitions) in &mut q_player_ani {
@@ -706,11 +748,35 @@ pub fn player_ani_changed(
                 Duration::from_millis(250),
             )
             .repeat();
-
-        // commands.entity(entity)
-        // .insert(Transform::from_xyz(0., -1.5, 0.))
-        // .insert(AnimationGraphHandle(animations.graph.clone()))
-        // .insert(PlayerAnimationState::Idle)
-        // .insert(transitions);
+    }
+}
+pub fn monster_bee_ani_changed(
+    mut commands: Commands,
+    mut q_player_ani: Query<
+        (Entity, &MonsterBeeAnimationState, &mut AnimationTransitions),
+        Changed<MonsterBeeAnimationState>,
+    >,
+    animations: Res<MonsterBeeAnimations>,
+    mut q_animation_player: Query<&mut AnimationPlayer>,
+) {
+    for (entity, state, mut transitions) in &mut q_player_ani {
+        info!("state:{:?}", state);
+        let Ok(mut bee) = q_animation_player.get_mut(entity) else {
+            return;
+        };
+        let str = match state {
+            MonsterBeeAnimationState::Flying => "Bee_Flying",
+            _ => "Walk",
+        };
+        // player.stop_all();
+        info!("str: {str}");
+        // let mut transitions = AnimationTransitions::new();
+        transitions
+            .play(
+                &mut bee,
+                animations.animations[str],
+                Duration::from_millis(250),
+            )
+            .repeat();
     }
 }
