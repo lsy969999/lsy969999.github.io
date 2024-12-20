@@ -12,7 +12,6 @@ use bevy::{
     render::view::RenderLayers,
     window::{CursorGrabMode, PrimaryWindow},
 };
-use bevy_atmosphere::plugin::AtmosphereCamera;
 
 use super::{
     component::{MyCamera2d, MyCamera3d},
@@ -69,7 +68,6 @@ pub(super) fn setup_camera_light(mut commands: Commands) {
         // DeferredPrepass,
         // Fxaa::default(),
         MyCamera3d,
-        AtmosphereCamera::default(),
         Transform::from_xyz(-12.5, 14.5, 19.0).looking_at(Vec3::ZERO, Vec3::Y),
         // ClusterConfig::Single,
     ));

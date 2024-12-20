@@ -8,7 +8,6 @@ use crate::{
     ui::MyUiPlugin,
 };
 use bevy::prelude::*;
-use bevy_atmosphere::plugin::AtmospherePlugin;
 use bevy_rapier3d::prelude::*;
 use bevy_tweening::TweeningPlugin;
 use state::MyAppState;
@@ -25,7 +24,6 @@ impl Plugin for MyAppPlugin {
 
         app.add_plugins(MeshPickingPlugin)
             .add_plugins(TweeningPlugin)
-            .add_plugins(AtmospherePlugin)
             .add_plugins(RapierPhysicsPlugin::<NoUserData>::default());
 
         app.add_plugins(MyAssetPlugin)
