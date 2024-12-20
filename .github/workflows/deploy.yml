@@ -23,7 +23,7 @@ jobs:
           wasm-opt --version
 
           rustup target add wasm32-unknown-unknown
-          cargo install wasm-bindgen-cli --version 0.2.97
+          cargo install wasm-bindgen-cli --version 0.2.99
           wasm-bindgen --version
 
           chmod +x ./build.sh
