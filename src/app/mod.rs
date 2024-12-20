@@ -1,9 +1,6 @@
 use crate::{
     asset::MyAssetPlugin,
-    games::{
-        default::MyDefaultGamePlugin, dungeon::MyDungeonGamePlugin,
-        new_default::MyNewDefaultGamePlugin,
-    },
+    games::{dungeon::MyDungeonGamePlugin, new_default::MyNewDefaultGamePlugin},
     shader::MyShaderPlugin,
     ui::MyUiPlugin,
 };

@@ -1,12 +1,12 @@
-use crate::app::{
-    component::{MyCamera2d, MyCamera3d},
-    state::MyAppState,
+use crate::{
+    app::{
+        component::{MyCamera2d, MyCamera3d},
+        state::MyAppState,
+    },
+    asset::resource::DefaultSceneAssets,
+    shader::animated_shader::AnimatedShader,
 };
-use bevy::{
-    color::palettes::css,
-    prelude::*,
-    window::{CursorGrabMode, PrimaryWindow},
-};
+use bevy::{color::palettes::css, prelude::*, render::mesh::MeshAabb};
 use bevy_rapier3d::prelude::*;
 use leafwing_input_manager::prelude::*;
 
@@ -14,7 +14,7 @@ pub struct MyNewDefaultGamePlugin;
 
 impl Plugin for MyNewDefaultGamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(MyAppState::DefaultScene), (setup));
+        app.add_systems(OnEnter(MyAppState::DefaultScene), setup);
 
         app.add_systems(
             FixedUpdate,
@@ -22,7 +22,7 @@ impl Plugin for MyNewDefaultGamePlugin {
         );
         app.add_systems(
             Update,
-            (player_look).run_if(in_state(MyAppState::DefaultScene)),
+            (player_look, scene_added).run_if(in_state(MyAppState::DefaultScene)),
         );
 
         app.add_plugins(InputManagerPlugin::<Action>::default());
@@ -31,109 +31,211 @@ impl Plugin for MyNewDefaultGamePlugin {
 
 #[derive(Component)]
 pub struct Player;
-
+#[derive(Component)]
+struct DefaultScene;
 pub fn setup(
+    mut commands: Commands,
+    def_assets: Res<DefaultSceneAssets>,
+    gltf_assets: Res<Assets<Gltf>>,
+) {
+    let Some(gltf) = gltf_assets.get(def_assets.new_default_scene.id()) else {
+        return;
+    };
+    commands.spawn((
+        SceneRoot(gltf.named_scenes["Scene"].clone()),
+        DefaultScene,
+        Name::new("DefaultScene"),
+    ));
+}
+
+fn scene_added(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     q_my_camera_3d: Query<Entity, With<MyCamera3d>>,
+    q_added_name: Query<(Entity, &Children, &Parent, &Name, &Transform), Added<Name>>,
+    q_mesh: Query<(&Mesh3d, &Name)>,
+    q_entity: Query<Entity>,
+    mut animated_materials: ResMut<Assets<AnimatedShader>>,
 ) {
     let Ok(camera_entity) = q_my_camera_3d.get_single() else {
         return;
     };
+    for (entity, children, parent, name, transform) in &q_added_name {
+        match name.as_str() {
+            "PlayerSpawnArea" => {
+                let mut transform = transform.clone();
+                transform.translation.y += 2.;
+                let input_map = InputMap::default()
+                    .with_dual_axis(
+                        Action::Move,
+                        // Define a virtual D-pad using four arbitrary buttons.
+                        VirtualDPad::wasd(),
+                    )
+                    .with_dual_axis(Action::Pan, MouseMove::default())
+                    .with(Action::Jump, KeyCode::Space)
+                    .with(Action::Run, KeyCode::ShiftLeft);
+                let player = commands
+                    .spawn((
+                        Name::new("Player"),
+                        InputManagerBundle::with_map(input_map),
+                        Player,
+                        RigidBody::KinematicPositionBased,
+                        KinematicCharacterController {
+                            custom_mass: Some(5.0),
+                            up: Vec3::Y,
+                            offset: CharacterLength::Absolute(0.01),
+                            slide: true,
+                            autostep: Some(CharacterAutostep {
+                                max_height: CharacterLength::Relative(0.3),
+                                min_width: CharacterLength::Relative(0.5),
+                                include_dynamic_bodies: false,
+                            }),
+                            // Don’t allow climbing slopes larger than 45 degrees.
+                            max_slope_climb_angle: 45.0_f32.to_radians(),
+                            // Automatically slide down on slopes smaller than 30 degrees.
+                            min_slope_slide_angle: 30.0_f32.to_radians(),
+                            apply_impulse_to_dynamic_bodies: true,
+                            snap_to_ground: None,
+                            ..default()
+                        },
+                        PlayerStatus {
+                            is_jump: false,
+                            is_run: false,
+                            is_grounded: false,
+                        },
+                        // Collider::round_cylinder(0.9, 0.3, 0.2),
+                        // Ccd { enabled: true },
+                        Collider::capsule_y(0.5, 0.5),
+                        Mesh3d(meshes.add(Capsule3d::default())),
+                        MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
+                        transform,
+                    ))
+                    .id();
+
+                commands
+                    .entity(camera_entity)
+                    .insert(CameraRotation { pitch: 0., yaw: 0. })
+                    .insert(Transform::from_xyz(0., 1., 6.))
+                    .set_parent(player);
+            }
+            floor if floor.starts_with("Floor") => {
+                for child_entity in children {
+                    let Ok((Mesh3d(mesh_handle), _)) = q_mesh.get(*child_entity) else {
+                        break;
+                    };
+                    let mesh = meshes.get(mesh_handle.id()).unwrap();
+                    let aabb = mesh.compute_aabb().unwrap();
+                    let extent = aabb.half_extents;
+                    commands
+                        .entity(entity)
+                        .insert(Collider::cuboid(extent.x, extent.y, extent.z))
+                        .insert(RigidBody::Fixed);
+                }
+            }
+            stair if stair.starts_with("Stair") => {
+                for child_entity in children {
+                    let Ok((Mesh3d(mesh_handle), _)) = q_mesh.get(*child_entity) else {
+                        break;
+                    };
+                    let mesh = meshes.get(mesh_handle.id()).unwrap();
+                    let aabb = mesh.compute_aabb().unwrap();
+                    let extent = aabb.half_extents;
+                    commands
+                        .entity(entity)
+                        .insert(
+                            Collider::from_bevy_mesh(mesh, &ComputedColliderShape::ConvexHull)
+                                .unwrap(),
+                        )
+                        .insert(RigidBody::Fixed);
+                }
+            }
+            "Frame" => {
+                for child_entity in children {
+                    let Ok((Mesh3d(mesh_handle), name)) = q_mesh.get(*child_entity) else {
+                        break;
+                    };
+                    let Ok(mat_entity) = q_entity.get(*child_entity) else {
+                        break;
+                    };
+                    let mesh = meshes.get(mesh_handle.id()).unwrap();
+                    // let aabb = mesh.compute_aabb().unwrap();
+                    // let extent = aabb.half_extents;
+                    // info!("extent: {extent:?}");
+
+                    commands.entity(entity).insert((
+                        RigidBody::Dynamic,
+                        // Collider::ball(extent.x),
+                        Collider::from_bevy_mesh(mesh, &ComputedColliderShape::ConvexHull).unwrap(),
+                    ));
+                    commands
+                        .entity(mat_entity)
+                        .remove::<MeshMaterial3d<StandardMaterial>>()
+                        .insert(MeshMaterial3d(animated_materials.add(AnimatedShader {})));
+                }
+            }
+            "FameBox" => {
+                for child_entity in children {
+                    let Ok((Mesh3d(mesh_handle), _)) = q_mesh.get(*child_entity) else {
+                        break;
+                    };
+                    let mesh = meshes.get(mesh_handle.id()).unwrap();
+                    let aabb = mesh.compute_aabb().unwrap();
+                    let extent = aabb.half_extents;
+                    commands
+                        .entity(entity)
+                        .insert(
+                            Collider::from_bevy_mesh(mesh, &ComputedColliderShape::ConvexHull)
+                                .unwrap(),
+                        )
+                        .insert(RigidBody::Fixed);
+                }
+            }
+            _ => {}
+        }
+    }
     /*
      * Stairs
      */
-    let stair_len = 30;
-    let stair_step = 0.2;
-    for i in 1..=stair_len {
-        let step = i as f32;
-        let collider = Collider::cuboid(1.0, step * stair_step, 1.0);
-        commands.spawn((
-            Transform::from_xyz(40.0, step * stair_step, step * 2.0 - 20.0),
-            Mesh3d(meshes.add(Cuboid::new(2., step * stair_step * 2., 2.))),
-            MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
-            collider.clone(),
-        ));
-        commands.spawn((
-            Transform::from_xyz(-40.0, step * stair_step, step * -2.0 + 20.0),
-            Mesh3d(meshes.add(Cuboid::new(2., step * stair_step * 2., 2.))),
-            MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
-            collider.clone(),
-        ));
-        commands.spawn((
-            Transform::from_xyz(step * 2.0 - 20.0, step * stair_step, 40.0),
-            Mesh3d(meshes.add(Cuboid::new(2., step * stair_step * 2., 2.))),
-            MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
-            collider.clone(),
-        ));
-        commands.spawn((
-            Transform::from_xyz(step * -2.0 + 20.0, step * stair_step, -40.0),
-            Mesh3d(meshes.add(Cuboid::new(2., step * stair_step * 2., 2.))),
-            MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
-            collider.clone(),
-        ));
-    }
-    commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(200., 1., 200.))),
-        MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
-        Transform::default(),
-        RigidBody::Fixed,
-        Collider::cuboid(100., 0.5, 100.),
-    ));
-    let input_map = InputMap::default()
-        .with_dual_axis(
-            Action::Move,
-            // Define a virtual D-pad using four arbitrary buttons.
-            VirtualDPad::wasd(),
-        )
-        .with_dual_axis(Action::Pan, MouseMove::default())
-        .with(Action::Jump, KeyCode::Space)
-        .with(Action::Run, KeyCode::ShiftLeft);
-    let player = commands
-        .spawn((
-            Name::new("Player"),
-            InputManagerBundle::with_map(input_map),
-            Player,
-            RigidBody::KinematicPositionBased,
-            KinematicCharacterController {
-                custom_mass: Some(5.0),
-                up: Vec3::Y,
-                offset: CharacterLength::Absolute(0.01),
-                slide: true,
-                autostep: Some(CharacterAutostep {
-                    max_height: CharacterLength::Relative(0.3),
-                    min_width: CharacterLength::Relative(0.5),
-                    include_dynamic_bodies: false,
-                }),
-                // Don’t allow climbing slopes larger than 45 degrees.
-                max_slope_climb_angle: 45.0_f32.to_radians(),
-                // Automatically slide down on slopes smaller than 30 degrees.
-                min_slope_slide_angle: 30.0_f32.to_radians(),
-                apply_impulse_to_dynamic_bodies: true,
-                snap_to_ground: None,
-                ..default()
-            },
-            PlayerStatus {
-                is_jump: false,
-                is_run: false,
-                is_grounded: false,
-            },
-            // Collider::round_cylinder(0.9, 0.3, 0.2),
-            // Ccd { enabled: true },
-            Collider::capsule_y(0.5, 0.5),
-            Mesh3d(meshes.add(Capsule3d::default())),
-            MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
-            Transform::from_xyz(0., 2., 0.),
-        ))
-        .id();
-
-    commands
-        .entity(camera_entity)
-        .insert(CameraRotation { pitch: 0., yaw: 0. })
-        .insert(Transform::from_xyz(0., 1., 6.))
-        .set_parent(player);
+    // let stair_len = 30;
+    // let stair_step = 0.2;
+    // for i in 1..=stair_len {
+    //     let step = i as f32;
+    //     let collider = Collider::cuboid(1.0, step * stair_step, 1.0);
+    //     commands.spawn((
+    //         Transform::from_xyz(40.0, step * stair_step, step * 2.0 - 20.0),
+    //         Mesh3d(meshes.add(Cuboid::new(2., step * stair_step * 2., 2.))),
+    //         MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
+    //         collider.clone(),
+    //     ));
+    //     commands.spawn((
+    //         Transform::from_xyz(-40.0, step * stair_step, step * -2.0 + 20.0),
+    //         Mesh3d(meshes.add(Cuboid::new(2., step * stair_step * 2., 2.))),
+    //         MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
+    //         collider.clone(),
+    //     ));
+    //     commands.spawn((
+    //         Transform::from_xyz(step * 2.0 - 20.0, step * stair_step, 40.0),
+    //         Mesh3d(meshes.add(Cuboid::new(2., step * stair_step * 2., 2.))),
+    //         MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
+    //         collider.clone(),
+    //     ));
+    //     commands.spawn((
+    //         Transform::from_xyz(step * -2.0 + 20.0, step * stair_step, -40.0),
+    //         Mesh3d(meshes.add(Cuboid::new(2., step * stair_step * 2., 2.))),
+    //         MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
+    //         collider.clone(),
+    //     ));
+    // }
+    // commands.spawn((
+    //     Mesh3d(meshes.add(Cuboid::new(200., 1., 200.))),
+    //     MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
+    //     Transform::default(),
+    //     RigidBody::Fixed,
+    //     Collider::cuboid(100., 0.5, 100.),
+    // ));
 }
+
 // This is the list of "things in the game I want to be able to do based on input"
 #[derive(Actionlike, PartialEq, Eq, Hash, Clone, Copy, Debug, Reflect)]
 enum Action {
@@ -244,7 +346,7 @@ fn player_control(
     // }
     movement.y = *vertical_movement;
     *vertical_movement += GRAVITY * delta_time * controller.custom_mass.unwrap_or(1.0);
-    info!("v {:?}", vertical_movement);
+    // info!("v {:?}", vertical_movement);
 
     controller.translation = Some(movement * delta_time);
 }
