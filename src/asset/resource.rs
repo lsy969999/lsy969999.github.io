@@ -7,8 +7,10 @@ use super::custom::CustomAsset;
 pub struct DefaultSceneAssets {
     #[asset(path = "models/Fox.glb")]
     pub fox: Handle<Gltf>,
-    #[asset(path = "models/default_scene.glb")]
-    pub default_scene: Handle<Gltf>,
+    // #[asset(path = "models/default_scene.glb")]
+    // pub default_scene: Handle<Gltf>,
+    #[asset(path = "models/new_default_scene.glb")]
+    pub new_default_scene: Handle<Gltf>,
 }
 
 #[derive(AssetCollection, Resource)]
