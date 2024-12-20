@@ -1,3 +1,5 @@
+use std::{collections::HashMap, time::Duration};
+
 use crate::{
     app::{
         component::{MyCamera2d, MyCamera3d},
@@ -59,6 +61,9 @@ fn scene_added(
     mut animated_materials: ResMut<Assets<AnimatedShader>>,
     def_assets: Res<DefaultSceneAssets>,
     gltf_assets: Res<Assets<Gltf>>,
+    mut q_animation_player: Query<&mut AnimationPlayer>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    player_animations: Option<Res<PlayerAnimations>>,
 ) {
     let Ok(camera_entity) = q_my_camera_3d.get_single() else {
         return;
@@ -198,7 +203,6 @@ fn scene_added(
                     return;
                 };
 
-                info!("zz");
                 let transform = transform.clone();
                 // transform.translation.y += 2.;
 
@@ -221,6 +225,59 @@ fn scene_added(
                     transform.with_scale(Vec3::splat(0.1)),
                     Name::new("Fox"),
                 ));
+            }
+            "Target3SpawnArea" => {
+                let Some(gltf) = gltf_assets.get(def_assets.character.id()) else {
+                    return;
+                };
+
+                for (name, _) in &gltf.named_animations {
+                    info!("ani name: {name:?}");
+                }
+
+                let transform = transform.clone();
+                // transform.translation.y += 2.;
+                let mut animatiton_map = HashMap::<String, AnimationNodeIndex>::new();
+                let mut anmation_graph = AnimationGraph::new();
+                for (name, clip_handle) in &gltf.named_animations {
+                    info!("ani: {name}");
+                    let idx = anmation_graph.add_clip(clip_handle.clone(), 1., anmation_graph.root);
+                    animatiton_map.insert(name.to_string(), idx);
+                }
+
+                let graph_handle = graphs.add(anmation_graph);
+                commands.insert_resource(PlayerAnimations {
+                    animations: animatiton_map.clone(),
+                    graph: graph_handle.clone(),
+                });
+                commands.spawn((
+                    SceneRoot(gltf.scenes[0].clone()),
+                    transform,
+                    Name::new("character"),
+                ));
+            }
+            "Main" => {
+                info!("main");
+                let Ok(mut player) = q_animation_player.get_mut(entity) else {
+                    return;
+                };
+                let Some(player_animations) = &player_animations else {
+                    return;
+                };
+                let mut transitions = AnimationTransitions::new();
+                transitions
+                    .play(
+                        &mut player,
+                        player_animations.animations["Idle"],
+                        Duration::ZERO,
+                    )
+                    .repeat();
+                commands
+                    .entity(entity)
+                    // .insert(MonsterBee)
+                    .insert(AnimationGraphHandle(player_animations.graph.clone()))
+                    // .insert(MonsterBeeAnimationState::Flying)
+                    ;
             }
             _ => {}
         }
@@ -266,7 +323,11 @@ fn scene_added(
     //     Collider::cuboid(100., 0.5, 100.),
     // ));
 }
-
+#[derive(Resource)]
+pub struct PlayerAnimations {
+    pub animations: HashMap<String, AnimationNodeIndex>,
+    pub graph: Handle<AnimationGraph>,
+}
 // This is the list of "things in the game I want to be able to do based on input"
 #[derive(Actionlike, PartialEq, Eq, Hash, Clone, Copy, Debug, Reflect)]
 enum Action {
