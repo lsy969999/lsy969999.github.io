@@ -61,7 +61,7 @@ iyes_perf_ui = { git = "https://github.com/IyesGames/iyes_perf_ui.git", branch =
 # ron = "0.8.1"
 # thiserror = "2.0.4"
 serde = { version = "1.0.215", features = ["derive"] }
-bevy_atmosphere = "0.11.0"
+# bevy_atmosphere = "0.11.0"
 bevy_asset_loader = { version = "0.22.0" }
 bevy_common_assets = { version = "0.12.0", features = ["ron"] }
 # avian3d = { git = "https://github.com/Jondolf/avian", branch = "main" }
