@@ -11,6 +11,8 @@ pub struct DefaultSceneAssets {
     // pub default_scene: Handle<Gltf>,
     #[asset(path = "models/new_default_scene.glb")]
     pub new_default_scene: Handle<Gltf>,
+    #[asset(path = "models/ellen_joe.glb")]
+    pub ellen_joe: Handle<Gltf>,
 }
 
 #[derive(AssetCollection, Resource)]

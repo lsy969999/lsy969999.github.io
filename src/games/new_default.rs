@@ -53,10 +53,12 @@ fn scene_added(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     q_my_camera_3d: Query<Entity, With<MyCamera3d>>,
-    q_added_name: Query<(Entity, &Children, &Parent, &Name, &Transform), Added<Name>>,
+    q_added_name: Query<(Entity, Option<&Children>, &Parent, &Name, &Transform), Added<Name>>,
     q_mesh: Query<(&Mesh3d, &Name)>,
     q_entity: Query<Entity>,
     mut animated_materials: ResMut<Assets<AnimatedShader>>,
+    def_assets: Res<DefaultSceneAssets>,
+    gltf_assets: Res<Assets<Gltf>>,
 ) {
     let Ok(camera_entity) = q_my_camera_3d.get_single() else {
         return;
@@ -120,7 +122,7 @@ fn scene_added(
                     .set_parent(player);
             }
             floor if floor.starts_with("Floor") => {
-                for child_entity in children {
+                for child_entity in children.unwrap() {
                     let Ok((Mesh3d(mesh_handle), _)) = q_mesh.get(*child_entity) else {
                         break;
                     };
@@ -134,7 +136,7 @@ fn scene_added(
                 }
             }
             stair if stair.starts_with("Stair") => {
-                for child_entity in children {
+                for child_entity in children.unwrap() {
                     let Ok((Mesh3d(mesh_handle), _)) = q_mesh.get(*child_entity) else {
                         break;
                     };
@@ -151,7 +153,7 @@ fn scene_added(
                 }
             }
             "Frame" => {
-                for child_entity in children {
+                for child_entity in children.unwrap() {
                     let Ok((Mesh3d(mesh_handle), name)) = q_mesh.get(*child_entity) else {
                         break;
                     };
@@ -175,7 +177,7 @@ fn scene_added(
                 }
             }
             "FameBox" => {
-                for child_entity in children {
+                for child_entity in children.unwrap() {
                     let Ok((Mesh3d(mesh_handle), _)) = q_mesh.get(*child_entity) else {
                         break;
                     };
@@ -190,6 +192,35 @@ fn scene_added(
                         )
                         .insert(RigidBody::Fixed);
                 }
+            }
+            "Target1SpawnArea" => {
+                let Some(gltf) = gltf_assets.get(def_assets.ellen_joe.id()) else {
+                    return;
+                };
+
+                info!("zz");
+                let transform = transform.clone();
+                // transform.translation.y += 2.;
+
+                commands.spawn((
+                    SceneRoot(gltf.scenes[0].clone()),
+                    transform.with_scale(Vec3::splat(3.)),
+                    Name::new("Ellen"),
+                ));
+            }
+            "Target2SpawnArea" => {
+                let Some(gltf) = gltf_assets.get(def_assets.fox.id()) else {
+                    return;
+                };
+
+                let transform = transform.clone();
+                // transform.translation.y += 2.;
+
+                commands.spawn((
+                    SceneRoot(gltf.scenes[0].clone()),
+                    transform.with_scale(Vec3::splat(0.1)),
+                    Name::new("Fox"),
+                ));
             }
             _ => {}
         }
@@ -296,7 +327,7 @@ fn player_control(
         let camera_right = player_transform.right();
 
         if player_status.is_run {
-            move_speed *= 4.;
+            move_speed *= 2.;
         }
 
         if axis_pair.x > 0. {
@@ -417,27 +448,7 @@ pub struct PlayerStatus {
 }
 
 #[derive(Component)]
-struct PlayerJumpTimer(Timer);
-
-#[derive(Component)]
 pub struct CameraRotation {
     pub yaw: f32,   // Y축 회전 (Yaw)
     pub pitch: f32, // X축 회전 (Pitch)
-}
-
-fn player_jump_timer(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut q_player_jump_timer: Query<(Entity, &mut PlayerJumpTimer)>,
-    mut q_player_status: Query<&mut PlayerStatus>,
-) {
-    for (entity, mut timer) in &mut q_player_jump_timer {
-        timer.0.tick(time.delta());
-        if timer.0.just_finished() {
-            for mut ps in &mut q_player_status {
-                ps.is_jump = false;
-            }
-            commands.entity(entity).despawn_recursive();
-        }
-    }
 }
