@@ -17,8 +17,12 @@ impl Plugin for MyNewDefaultGamePlugin {
         app.add_systems(OnEnter(MyAppState::DefaultScene), (setup));
 
         app.add_systems(
+            FixedUpdate,
+            (player_control,).run_if(in_state(MyAppState::DefaultScene)),
+        );
+        app.add_systems(
             Update,
-            (player_control, player_jump_timer).run_if(in_state(MyAppState::DefaultScene)),
+            (player_look).run_if(in_state(MyAppState::DefaultScene)),
         );
 
         app.add_plugins(InputManagerPlugin::<Action>::default());
@@ -37,13 +41,45 @@ pub fn setup(
     let Ok(camera_entity) = q_my_camera_3d.get_single() else {
         return;
     };
-
+    /*
+     * Stairs
+     */
+    let stair_len = 30;
+    let stair_step = 0.2;
+    for i in 1..=stair_len {
+        let step = i as f32;
+        let collider = Collider::cuboid(1.0, step * stair_step, 1.0);
+        commands.spawn((
+            Transform::from_xyz(40.0, step * stair_step, step * 2.0 - 20.0),
+            Mesh3d(meshes.add(Cuboid::new(2., step * stair_step * 2., 2.))),
+            MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
+            collider.clone(),
+        ));
+        commands.spawn((
+            Transform::from_xyz(-40.0, step * stair_step, step * -2.0 + 20.0),
+            Mesh3d(meshes.add(Cuboid::new(2., step * stair_step * 2., 2.))),
+            MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
+            collider.clone(),
+        ));
+        commands.spawn((
+            Transform::from_xyz(step * 2.0 - 20.0, step * stair_step, 40.0),
+            Mesh3d(meshes.add(Cuboid::new(2., step * stair_step * 2., 2.))),
+            MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
+            collider.clone(),
+        ));
+        commands.spawn((
+            Transform::from_xyz(step * -2.0 + 20.0, step * stair_step, -40.0),
+            Mesh3d(meshes.add(Cuboid::new(2., step * stair_step * 2., 2.))),
+            MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
+            collider.clone(),
+        ));
+    }
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(20., 1., 20.))),
+        Mesh3d(meshes.add(Cuboid::new(200., 1., 200.))),
         MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
         Transform::default(),
         RigidBody::Fixed,
-        Collider::cuboid(10., 0.5, 10.),
+        Collider::cuboid(100., 0.5, 100.),
     ));
     let input_map = InputMap::default()
         .with_dual_axis(
@@ -61,18 +97,34 @@ pub fn setup(
             Player,
             RigidBody::KinematicPositionBased,
             KinematicCharacterController {
-                offset: CharacterLength::Relative(0.01),
+                custom_mass: Some(5.0),
+                up: Vec3::Y,
+                offset: CharacterLength::Absolute(0.01),
+                slide: true,
+                autostep: Some(CharacterAutostep {
+                    max_height: CharacterLength::Relative(0.3),
+                    min_width: CharacterLength::Relative(0.5),
+                    include_dynamic_bodies: false,
+                }),
+                // Don’t allow climbing slopes larger than 45 degrees.
+                max_slope_climb_angle: 45.0_f32.to_radians(),
+                // Automatically slide down on slopes smaller than 30 degrees.
+                min_slope_slide_angle: 30.0_f32.to_radians(),
+                apply_impulse_to_dynamic_bodies: true,
+                snap_to_ground: None,
                 ..default()
             },
             PlayerStatus {
                 is_jump: false,
                 is_run: false,
+                is_grounded: false,
             },
-            Ccd { enabled: true },
+            // Collider::round_cylinder(0.9, 0.3, 0.2),
+            // Ccd { enabled: true },
             Collider::capsule_y(0.5, 0.5),
             Mesh3d(meshes.add(Capsule3d::default())),
             MeshMaterial3d(materials.add(StandardMaterial::from_color(css::GRAY))),
-            Transform::from_xyz(0., 3., 0.),
+            Transform::from_xyz(0., 2., 0.),
         ))
         .id();
 
@@ -95,7 +147,109 @@ enum Action {
 
 // Query for the `ActionState` component in your game logic systems!
 fn player_control(
-    mut commands: Commands,
+    time: Res<Time>,
+    mut q_player: Query<
+        (
+            Entity,
+            &mut PlayerStatus,
+            &ActionState<Action>,
+            &mut Transform,
+            &mut KinematicCharacterController,
+            Option<&KinematicCharacterControllerOutput>,
+        ),
+        (With<Player>, Without<MyCamera3d>),
+    >,
+    mut vertical_movement: Local<f32>,
+    mut grounded_timer: Local<f32>,
+) {
+    let Ok((
+        player_entity,
+        mut player_status,
+        action_state,
+        mut player_transform,
+        mut controller,
+        output,
+    )) = q_player.get_single_mut()
+    else {
+        return;
+    };
+
+    const GRAVITY: f32 = -9.81; // 중력 가속도
+    let mut move_speed: f32 = 5.0; // 이동 속도
+    const JUMP_FORCE: f32 = 5.0; // 점프 속도
+    let mut movement = Vec3::ZERO;
+    if action_state.just_pressed(&Action::Run) {
+        player_status.is_run = true;
+        // info!("run");
+    }
+    if action_state.just_released(&Action::Run) {
+        player_status.is_run = false;
+        // info!("run release");
+    }
+
+    if action_state.axis_pair(&Action::Move) != Vec2::ZERO {
+        let axis_pair = action_state.axis_pair(&Action::Move);
+
+        let camera_forward = player_transform.forward();
+        let camera_right = player_transform.right();
+
+        if player_status.is_run {
+            move_speed *= 4.;
+        }
+
+        if axis_pair.x > 0. {
+            // info!("righ");
+            movement += *camera_right * move_speed;
+        }
+
+        if axis_pair.x < 0. {
+            // info!("left");
+            movement -= *camera_right * move_speed;
+            //
+        }
+
+        if axis_pair.y > 0. {
+            // info!("forwrad");
+            movement += *camera_forward * move_speed;
+        }
+
+        if axis_pair.y < 0. {
+            // info!("back");
+            movement -= *camera_forward * move_speed;
+            //
+        }
+    }
+    let delta_time = time.delta_secs();
+    let jump_speed = if action_state.just_pressed(&Action::Jump) {
+        20.
+    } else {
+        0.
+    };
+    // info!("y: {}", movement.y);
+    if output.map(|o| o.grounded).unwrap_or(false) {
+        *grounded_timer = 0.5;
+        *vertical_movement = 0.0;
+    }
+    if *grounded_timer > 0.0 {
+        *grounded_timer -= delta_time;
+        // If we jump we clear the grounded tolerance
+        if jump_speed > 0.0 {
+            *vertical_movement = jump_speed;
+            *grounded_timer = 0.0;
+        }
+    }
+
+    // if player_status.is_jump {
+    //     movement.y = 13.;
+    // }
+    movement.y = *vertical_movement;
+    *vertical_movement += GRAVITY * delta_time * controller.custom_mass.unwrap_or(1.0);
+    info!("v {:?}", vertical_movement);
+
+    controller.translation = Some(movement * delta_time);
+}
+
+fn player_look(
     time: Res<Time>,
     mut q_player: Query<
         (
@@ -129,94 +283,35 @@ fn player_control(
     else {
         return;
     };
-    const GRAVITY: f32 = -9.8; // 중력 가속도
-    let mut move_speed: f32 = 5.0; // 이동 속도
-    const JUMP_FORCE: f32 = 5.0; // 점프 속도
-    let mut movement = Vec3::ZERO;
-    if action_state.just_pressed(&Action::Run) {
-        player_status.is_run = true;
-        // info!("run");
-    }
-    if action_state.just_released(&Action::Run) {
-        player_status.is_run = false;
-        // info!("run release");
-    }
-    if action_state.axis_pair(&Action::Move) != Vec2::ZERO {
-        let axis_pair = action_state.axis_pair(&Action::Move);
-
-        let camera_forward = player_transform.forward();
-        let camera_right = player_transform.right();
-
-        if player_status.is_run {
-            move_speed *= 4.;
-        }
-
-        if axis_pair.x > 0. {
-            // info!("righ");
-            movement += *camera_right * move_speed * time.delta_secs();
-        }
-
-        if axis_pair.x < 0. {
-            // info!("left");
-            movement -= *camera_right * move_speed * time.delta_secs();
-            //
-        }
-
-        if axis_pair.y > 0. {
-            // info!("forwrad");
-            movement += *camera_forward * move_speed * time.delta_secs();
-        }
-
-        if axis_pair.y < 0. {
-            // info!("back");
-            movement -= *camera_forward * move_speed * time.delta_secs();
-            //
-        }
-    }
-    if action_state.just_pressed(&Action::Jump) {
-        if let Some(output) = output {
-            if output.grounded {
-                player_status.is_jump = true;
-                commands.spawn(PlayerJumpTimer(Timer::from_seconds(1., TimerMode::Once)));
-                // info!("jump!");
-            }
-        }
-    }
-
-    if player_status.is_jump {
-        movement.y = 13. * time.delta_secs();
-    }
-
-    movement.y += GRAVITY * time.delta_secs();
-
-    controller.translation = Some(movement);
-
     if action_state.axis_pair(&Action::Pan) != Vec2::ZERO {
         // info!("pan");
         let sensitivity = 0.1; // 마우스 감도
         let pitch_limit = std::f32::consts::FRAC_PI_2 - 0.01;
 
         let axis_pair = action_state.axis_pair(&Action::Pan);
-        let mut delta_x = axis_pair.x;
-        let mut delta_y = axis_pair.y;
+        let delta_x = axis_pair.x;
+        let delta_y = axis_pair.y;
         camera_rotation.yaw -= delta_x * sensitivity * time.delta_secs();
         camera_rotation.pitch -= delta_y * sensitivity * time.delta_secs();
         camera_rotation.pitch = camera_rotation.pitch.clamp(-pitch_limit, pitch_limit);
-        camera_transform.rotation = Quat::from_euler(
-            EulerRot::YXZ, // 회전 순서: Yaw -> Pitch
-            // camera_rotation.yaw,   // Yaw
-            0.,
-            camera_rotation.pitch, // Pitch
-            0.0,                   // Roll은 항상 0
-        );
+        camera_transform.rotation = Quat::from_axis_angle(Vec3::X, camera_rotation.pitch);
+        // camera_transform.rotation = Quat::from_euler(
+        //     EulerRot::YXZ, // 회전 순서: Yaw -> Pitch
+        //     // camera_rotation.yaw,   // Yaw
+        //     0.,
+        //     camera_rotation.pitch, // Pitch
+        //     0.0,                   // Roll은 항상 0
+        // );
 
         player_transform.rotation = Quat::from_axis_angle(Vec3::Y, camera_rotation.yaw);
     }
 }
+
 #[derive(Component, Debug)]
 pub struct PlayerStatus {
     pub is_jump: bool,
     pub is_run: bool,
+    pub is_grounded: bool,
 }
 
 #[derive(Component)]

@@ -12,6 +12,7 @@ use bevy::{
     render::view::RenderLayers,
     window::{CursorGrabMode, PrimaryWindow},
 };
+use bevy_atmosphere::plugin::AtmosphereCamera;
 
 use super::{
     component::{MyCamera2d, MyCamera3d},
@@ -57,24 +58,25 @@ pub(super) fn setup_camera_light(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
         Camera {
-            hdr: false,
+            // hdr: false,
             // clear_color: ClearColorConfig::Custom(css::WHITE.into()),
             ..default()
         }, // MSAA needs to be off for Deferred rendering
-        Msaa::Off,
+        // Msaa::Off,
         // TemporalAntiAliasing::default(),
         // DepthPrepass,
         // MotionVectorPrepass,
         // DeferredPrepass,
         // Fxaa::default(),
         MyCamera3d,
+        AtmosphereCamera::default(),
         Transform::from_xyz(-12.5, 14.5, 19.0).looking_at(Vec3::ZERO, Vec3::Y),
         // ClusterConfig::Single,
     ));
 
     commands.spawn((
         Camera2d::default(),
-        Msaa::Off,
+        // Msaa::Off,
         // DepthPrepass,
         // DeferredPrepass,
         MyCamera2d,
