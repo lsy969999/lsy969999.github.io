@@ -135,14 +135,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "android"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "lsy969999_github_io",
-]
-
-[[package]]
 name = "android-activity"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2910,14 +2902,6 @@ checksum = "617ee6cf8e3f66f3b4ea67a4058564628cde41901316e19f559e14c7c72c5e7b"
 dependencies = [
  "core-foundation-sys",
  "mach2",
-]
-
-[[package]]
-name = "ios"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "lsy969999_github_io",
 ]
 
 [[package]]

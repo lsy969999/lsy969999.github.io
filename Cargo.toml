@@ -3,8 +3,8 @@ name = "lsy969999_github_io"
 version = "0.1.0"
 edition = "2021"
 
-[workspace]
-members = ["ios", "android"]
+# [workspace]
+# members = ["ios", "android"]
 
 [features]
 default = ["inspector"]
