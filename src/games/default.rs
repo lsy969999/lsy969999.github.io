@@ -4,13 +4,16 @@ use crate::{
         state::MyAppState,
     },
     asset::resource::{BaseAssets, DefaultSceneAssets},
+    shader::animated_shader::AnimatedShader,
 };
 use bevy::{
+    asset::RenderAssetUsages,
     color::palettes::css,
     math::vec3,
     prelude::*,
     render::{
-        mesh::{skinning::SkinnedMesh, MeshAabb},
+        mesh::{skinning::SkinnedMesh, MeshAabb, MeshVertexAttribute},
+        render_resource::VertexFormat,
         view::{NoFrustumCulling, RenderLayers},
     },
 };
@@ -22,7 +25,10 @@ pub struct MyDefaultGamePlugin;
 impl Plugin for MyDefaultGamePlugin {
     fn build(&self, app: &mut App) {
         // app.init_state::<PlayerAniState>();
-        app.add_systems(OnEnter(MyAppState::DefaultScene), new_setup);
+        app.add_systems(
+            OnEnter(MyAppState::DefaultScene),
+            (new_setup, new_test_shader),
+        );
         // app.add_systems(OnEnter(MyAppState::DefaultScene), fox_spawn.after(setup));
         app.add_systems(OnExit(MyAppState::DefaultScene), clear_scene);
         app.add_systems(
@@ -32,7 +38,7 @@ impl Plugin for MyDefaultGamePlugin {
                 draw_axes_helper_gizmo,
                 player_movement,
                 player_rotation,
-                camera_movement,
+                // camera_movement,
                 added_default_scene,
                 player_ani_changed,
                 added_mesh3d_picking,
@@ -40,6 +46,8 @@ impl Plugin for MyDefaultGamePlugin {
                 monster_text,
                 read_result_system,
                 monster_bee_ani_changed,
+                display_events,
+                player_monster_attack_collision,
                 // character_controller,
             )
                 .run_if(in_state(MyAppState::DefaultScene)),
@@ -57,6 +65,44 @@ fn disable_culling_for_skinned_meshes(
     for entity in &skinned {
         commands.entity(entity).insert(NoFrustumCulling);
     }
+}
+
+fn new_test_shader(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut animated_materials: ResMut<Assets<AnimatedShader>>,
+) {
+    let mut mesh = Mesh::new(
+        bevy::render::mesh::PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(
+        MeshVertexAttribute::new("Vertex_Position", 0, VertexFormat::Float32x3),
+        vec![
+            [-0.5, -0.5, 0.0], // 좌하단 정점
+            [0.5, -0.5, 0.0],  // 우하단 정점
+            [0.0, 0.5, 0.0],   // 상단 정점
+        ],
+    );
+    mesh.insert_indices(bevy::render::mesh::Indices::U32(vec![0, 1, 2]));
+    let handle = meshes.add(mesh);
+
+    commands.spawn((
+        Name::new("testshader"),
+        Mesh3d(meshes.add(Cuboid::default())),
+        MeshMaterial3d(animated_materials.add(AnimatedShader {})),
+        Transform::from_xyz(0., 2., 0.),
+        RigidBody::Dynamic,
+        Collider::cuboid(0.5, 0.5, 0.5),
+    ));
+
+    commands.spawn((
+        Name::new("testshader2"),
+        Mesh3d(meshes.add(Plane3d::default())),
+        MeshMaterial3d(animated_materials.add(AnimatedShader {})),
+        Transform::from_xyz(0., 3., 0.),
+    ));
 }
 
 fn new_setup(
@@ -77,6 +123,13 @@ fn new_setup(
         animatiton_map.insert(name.to_string(), idx);
     }
 
+    for (a, b) in &gltf.named_nodes {
+        info!("node: {a:?}");
+    }
+    for (a, b) in &gltf.named_scenes {
+        info!("scene: {a:?}");
+    }
+
     let graph_handle = graphs.add(anmation_graph);
     commands.insert_resource(PlayerAnimations {
         animations: animatiton_map.clone(),
@@ -88,7 +141,7 @@ fn new_setup(
     });
 
     commands.spawn((
-        SceneRoot(gltf.scenes[0].clone()),
+        SceneRoot(gltf.named_scenes["Scene"].clone()),
         DefaultScene,
         Name::new("DefaultScene"),
     ));
@@ -105,18 +158,114 @@ fn added_mesh3d_picking(
         }
     }
 }
-
+fn display_events(mut collision_events: EventReader<CollisionEvent>) {
+    for collision_event in collision_events.read() {
+        println!("Received collision event: {:?}", collision_event);
+    }
+}
+fn player_monster_attack_collision(
+    mut collision_events: EventReader<CollisionEvent>,
+    q_player: Query<&Player>,
+    q_enemy: Query<&MonsterEnemyAttackSensor>,
+    mut q_plyer_ani: Query<&mut PlayerAnimationState>,
+) {
+    for collision_event in collision_events.read() {
+        match collision_event {
+            CollisionEvent::Started(entity1, entity2, collision_event_flags) => {
+                if q_player.get(*entity1).is_ok() && q_enemy.get(*entity2).is_ok()
+                    || q_player.get(*entity2).is_ok() && q_enemy.get(*entity1).is_ok()
+                {
+                    info!("player attack enemy start");
+                    if let Ok(mut state) = q_plyer_ani.get_single_mut() {
+                        info!("punch!!");
+                        *state = PlayerAnimationState::Punch;
+                    }
+                }
+            }
+            CollisionEvent::Stopped(entity1, entity2, collision_event_flags) => {
+                if q_player.get(*entity1).is_ok() && q_enemy.get(*entity2).is_ok()
+                    || q_player.get(*entity2).is_ok() && q_enemy.get(*entity1).is_ok()
+                {
+                    info!("player attack enemy end");
+                }
+            }
+        }
+    }
+}
 fn added_default_scene(
     mut commands: Commands,
     q_added_name: Query<(Entity, &Children, &Parent, &Name, &Transform), Added<Name>>,
     q_mesh: Query<(&Mesh3d, &Name)>,
+    q_entity: Query<Entity>,
     mut q_animation_player: Query<&mut AnimationPlayer>,
     meshes: Res<Assets<Mesh>>,
     player_animations: Res<PlayerAnimations>,
     bee_animations: Res<PlayerAnimations>,
+    def_assets: Res<DefaultSceneAssets>,
+    gltf_assets: Res<Assets<Gltf>>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    mut animated_materials: ResMut<Assets<AnimatedShader>>,
 ) {
     for (entity, children, parent, name, transform) in &q_added_name {
         match name.as_str() {
+            "MonsterArmature_Enemy" => {
+                let Ok(mut player) = q_animation_player.get_mut(entity) else {
+                    return;
+                };
+                let Some(gltf) = gltf_assets.get(def_assets.default_scene.id()) else {
+                    return;
+                };
+                let mut animatiton_map = HashMap::<String, AnimationNodeIndex>::new();
+                let mut anmation_graph = AnimationGraph::new();
+                for (name, clip_handle) in &gltf.named_animations {
+                    info!("ani: {name}");
+                    let idx = anmation_graph.add_clip(clip_handle.clone(), 1., anmation_graph.root);
+                    animatiton_map.insert(name.to_string(), idx);
+                }
+                let mut transitions = AnimationTransitions::new();
+                transitions
+                    .play(&mut player, animatiton_map["Enemy_Idle"], Duration::ZERO)
+                    .repeat();
+                commands
+                    .entity(entity)
+                    .insert(MonsterEnemy)
+                    .insert(AnimationGraphHandle(graphs.add(anmation_graph)))
+                    .insert(MonsterEmenyAnimationState::Idle)
+                    .insert(Collider::ball(1.))
+                    .insert(RigidBody::KinematicVelocityBased)
+                    .with_children(|parent| {
+                        parent
+                            .spawn(Collider::ball(3.))
+                            .insert(Transform::default())
+                            .insert(RigidBody::Fixed)
+                            .insert(Sensor)
+                            .insert(MonsterEnemyAttackSensor)
+                            .insert(ActiveEvents::COLLISION_EVENTS)
+                            .insert(ActiveCollisionTypes::KINEMATIC_STATIC)
+                            // .insert(ActiveCollisionTypes::all())
+                            ;
+                    });
+                info!("MonsterArmature_Enemy");
+            }
+            "EnemySpawnZone" => {
+                //
+                let Some(gltf) = gltf_assets.get(def_assets.default_scene.id()) else {
+                    return;
+                };
+
+                // let tr = transform.clone();
+
+                let mut tr = transform.clone();
+
+                for _ in 1..=1 {
+                    commands.spawn((
+                        SceneRoot(gltf.named_scenes["MonsterEnemy"].clone()),
+                        tr,
+                        Name::new("MonsterEnemy"),
+                    ));
+                    tr.translation.x += 3.;
+                }
+            }
             "Floor" => {
                 for entity in children {
                     let Ok((Mesh3d(mesh_handle), _)) = q_mesh.get(*entity) else {
@@ -142,6 +291,9 @@ fn added_default_scene(
                     let Ok((Mesh3d(mesh_handle), name)) = q_mesh.get(*child_entity) else {
                         break;
                     };
+                    let Ok(mat_entity) = q_entity.get(*child_entity) else {
+                        break;
+                    };
                     let mesh = meshes.get(mesh_handle.id()).unwrap();
                     // let aabb = mesh.compute_aabb().unwrap();
                     // let extent = aabb.half_extents;
@@ -152,6 +304,10 @@ fn added_default_scene(
                         // Collider::ball(extent.x),
                         Collider::from_bevy_mesh(mesh, &ComputedColliderShape::ConvexHull).unwrap(),
                     ));
+                    commands
+                        .entity(mat_entity)
+                        .remove::<MeshMaterial3d<StandardMaterial>>()
+                        .insert(MeshMaterial3d(animated_materials.add(AnimatedShader {})));
                 }
             }
             text if text.starts_with("Text") => {
@@ -196,7 +352,11 @@ fn added_default_scene(
                     let Ok((Mesh3d(mesh_handle), _)) = q_mesh.get(*entity) else {
                         break;
                     };
+                    let Ok(mat_entity) = q_entity.get(*entity) else {
+                        break;
+                    };
                     let mesh = meshes.get(mesh_handle.id()).unwrap();
+
                     commands
                         .entity(*entity)
                         // .insert(Collider::convex_hull_from_mesh(mesh).unwrap())
@@ -205,6 +365,36 @@ fn added_default_scene(
                                 .unwrap(),
                         )
                         .insert(RigidBody::Fixed);
+
+                    commands
+                        .entity(mat_entity)
+                        .remove::<MeshMaterial3d<StandardMaterial>>()
+                        .insert(MeshMaterial3d(animated_materials.add(AnimatedShader {})));
+                }
+            }
+            "TestPlane" => {
+                for entity in children {
+                    let Ok((Mesh3d(mesh_handle), _)) = q_mesh.get(*entity) else {
+                        break;
+                    };
+                    let Ok(mat_entity) = q_entity.get(*entity) else {
+                        break;
+                    };
+                    let mesh = meshes.get(mesh_handle.id()).unwrap();
+
+                    // commands
+                    //     .entity(*entity)
+                    //     // .insert(Collider::convex_hull_from_mesh(mesh).unwrap())
+                    //     .insert(
+                    //         Collider::from_bevy_mesh(mesh, &ComputedColliderShape::ConvexHull)
+                    //             .unwrap(),
+                    //     )
+                    //     .insert(RigidBody::Fixed);
+
+                    commands
+                        .entity(mat_entity)
+                        .remove::<MeshMaterial3d<StandardMaterial>>()
+                        .insert(MeshMaterial3d(animated_materials.add(AnimatedShader {})));
                 }
             }
             "MonsterArmature_Bee" => {
@@ -270,6 +460,7 @@ fn added_default_scene(
                         // snap_to_ground: Some(CharacterLength::Absolute(0.5)),
                         ..default()
                     })
+                    // .insert(ActiveEvents::COLLISION_EVENTS)
                     .id();
                 commands.entity(new_rigid).set_parent(**parent);
                 commands.entity(entity).set_parent(new_rigid);
@@ -284,6 +475,10 @@ fn added_default_scene(
 
 #[derive(Component)]
 pub struct MonsterBee;
+#[derive(Component)]
+pub struct MonsterEnemy;
+#[derive(Component)]
+pub struct MonsterEnemyAttackSensor;
 
 fn draw_axes_helper_gizmo(mut gizmos: Gizmos) {
     let transform = Transform::from_xyz(0., 10., 0.);
@@ -369,7 +564,11 @@ pub struct MonsterBeeAnimations {
     pub animations: HashMap<String, AnimationNodeIndex>,
     pub graph: Handle<AnimationGraph>,
 }
-
+#[derive(Resource)]
+pub struct MonsterEnemyAnimations {
+    pub animations: HashMap<String, AnimationNodeIndex>,
+    pub graph: Handle<AnimationGraph>,
+}
 #[derive(Component)]
 struct DefaultScene;
 
@@ -703,9 +902,9 @@ fn camera_movement(
 
     //-12.5, 14.5, 19.0
     c_tr.translation = vec3(
-        p_tr.translation.x - 12.5,
-        p_tr.translation.y + 14.5,
-        p_tr.translation.z + 19.0,
+        p_tr.translation.x - 12.5 * 1.,
+        p_tr.translation.y + 14.5 * 1.,
+        p_tr.translation.z + 19.0 * 1.,
     );
 }
 
@@ -713,11 +912,17 @@ fn camera_movement(
 pub enum PlayerAnimationState {
     Idle,
     Walking,
+    Punch,
 }
 
 #[derive(Component, Debug, Reflect, PartialEq, Eq)]
 pub enum MonsterBeeAnimationState {
     Flying,
+    Walking,
+}
+#[derive(Component, Debug, Reflect, PartialEq, Eq)]
+pub enum MonsterEmenyAnimationState {
+    Idle,
     Walking,
 }
 pub fn player_ani_changed(
@@ -736,6 +941,7 @@ pub fn player_ani_changed(
         };
         let str = match state {
             PlayerAnimationState::Idle => "Idle",
+            PlayerAnimationState::Punch => "Punch",
             _ => "Walk",
         };
         // player.stop_all();
