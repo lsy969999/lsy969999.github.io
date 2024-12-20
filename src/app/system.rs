@@ -3,11 +3,14 @@ use std::f32::consts::PI;
 use bevy::{
     color::palettes::css,
     core_pipeline::{
+        experimental::taa::TemporalAntiAliasing,
         fxaa::Fxaa,
         prepass::{DeferredPrepass, DepthPrepass, MotionVectorPrepass},
     },
+    pbr::{Cascade, CascadeShadowConfigBuilder, ClusterConfig, DirectionalLightShadowMap},
     prelude::*,
     render::view::RenderLayers,
+    window::{CursorGrabMode, PrimaryWindow},
 };
 
 use super::{
@@ -39,33 +42,39 @@ pub(super) fn setup_camera_light(mut commands: Commands) {
         // As this example has a much smaller world, we can tighten the shadow
         // bounds for better visual quality.
         // CascadeShadowConfigBuilder {
-        //     first_cascade_far_bound: 4.0,
-        //     maximum_distance: 10.0,
-        //     ..default()
+        //     num_cascades: 1,               // 기본적으로 3개의 cascade 사용
+        //     minimum_distance: 0.1,         // 카메라와 가까운 0.1 유닛부터 그림자 시작
+        //     maximum_distance: 100.0,       // 100 유닛까지 그림자 렌더링
+        //     first_cascade_far_bound: 10.0, // 첫 번째 cascade는 카메라로부터 10 유닛까지 적용
+        //     overlap_proportion: 0.1,       // cascade 간 10%의 오버랩
         // }
         // .build(),
     ));
+
+    // commands.insert_resource(DirectionalLightShadowMap { size: 1024 });
 
     // camera
     commands.spawn((
         Camera3d::default(),
         Camera {
-            // hdr: false,
+            hdr: false,
             // clear_color: ClearColorConfig::Custom(css::WHITE.into()),
             ..default()
         }, // MSAA needs to be off for Deferred rendering
-        // Msaa::Off,
+        Msaa::Off,
+        // TemporalAntiAliasing::default(),
         // DepthPrepass,
         // MotionVectorPrepass,
         // DeferredPrepass,
         // Fxaa::default(),
         MyCamera3d,
         Transform::from_xyz(-12.5, 14.5, 19.0).looking_at(Vec3::ZERO, Vec3::Y),
+        // ClusterConfig::Single,
     ));
 
     commands.spawn((
         Camera2d::default(),
-        // Msaa::Off,
+        Msaa::Off,
         // DepthPrepass,
         // DeferredPrepass,
         MyCamera2d,
@@ -82,4 +91,18 @@ pub(super) fn setup_camera_light(mut commands: Commands) {
 
 pub(super) fn start_state(mut next_state: ResMut<NextState<MyAppState>>) {
     next_state.set(MyAppState::BaseAssetLoading);
+}
+pub fn toggle_cursor_grab_with_esc(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    if keys.just_pressed(KeyCode::Escape) {
+        let mut primary_window = q_windows.single_mut();
+        primary_window.cursor_options.visible = !primary_window.cursor_options.visible;
+        primary_window.cursor_options.grab_mode = if primary_window.cursor_options.visible {
+            CursorGrabMode::None
+        } else {
+            CursorGrabMode::Locked
+        };
+    }
 }

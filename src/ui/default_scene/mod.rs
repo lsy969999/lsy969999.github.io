@@ -16,13 +16,13 @@ pub fn on_enter_default_scene(
 
     commands.entity(root_ui).with_children(|parent| {
         parent.spawn(Node { ..default() }).with_children(|parent| {
-            parent.spawn((
-                Text::new("default scene"),
-                TextFont {
-                    font: base_asset.font.clone(),
-                    ..default()
-                },
-            ));
+            // parent.spawn((
+            //     Text::new("default scene"),
+            //     TextFont {
+            //         font: base_asset.font.clone(),
+            //         ..default()
+            //     },
+            // ));
             // parent
             //     .spawn((Button))
             //     .observe(

@@ -1,6 +1,9 @@
 use crate::{
     asset::MyAssetPlugin,
-    games::{default::MyDefaultGamePlugin, dungeon::MyDungeonGamePlugin},
+    games::{
+        default::MyDefaultGamePlugin, dungeon::MyDungeonGamePlugin,
+        new_default::MyNewDefaultGamePlugin,
+    },
     shader::MyShaderPlugin,
     ui::MyUiPlugin,
 };
@@ -8,7 +11,7 @@ use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
 use bevy_tweening::TweeningPlugin;
 use state::MyAppState;
-use system::{setup_camera_light, start_state};
+use system::{setup_camera_light, start_state, toggle_cursor_grab_with_esc};
 pub mod component;
 pub mod state;
 mod system;
@@ -26,11 +29,13 @@ impl Plugin for MyAppPlugin {
         app.add_plugins(MyAssetPlugin)
             .add_plugins(MyUiPlugin)
             .add_plugins(MyShaderPlugin)
-            .add_plugins(MyDefaultGamePlugin)
+            // .add_plugins(MyDefaultGamePlugin)
+            .add_plugins(MyNewDefaultGamePlugin)
             .add_plugins(MyDungeonGamePlugin);
 
         app.add_systems(Startup, setup_camera_light);
         app.add_systems(Startup, start_state);
+        app.add_systems(Update, toggle_cursor_grab_with_esc);
         #[cfg(feature = "inspector")]
         {
             use super::inspector::InspectorPlugin;
