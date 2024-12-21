@@ -96,7 +96,7 @@ pub fn toggle_cursor_grab_with_esc(
     keys: Res<ButtonInput<KeyCode>>,
     mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
 ) {
-    if keys.just_pressed(KeyCode::Escape) {
+    if keys.just_pressed(KeyCode::Tab) {
         let mut primary_window = q_windows.single_mut();
         primary_window.cursor_options.visible = !primary_window.cursor_options.visible;
         primary_window.cursor_options.grab_mode = if primary_window.cursor_options.visible {
