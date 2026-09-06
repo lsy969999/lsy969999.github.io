@@ -1,0 +1,169 @@
+---
+id: cherry-world-native-js-bridge
+project: cherry-world
+title: Native–JS 비동기 브리지 개선
+description: 콜백 이름 기반 호출을 보조 함수와 UUID·Promise 요청·응답 구조로 개선한 과정
+slug: /cherry-world/native-js-bridge
+order: 10
+featured: false
+tags:
+  - JavaScript
+  - WebView
+  - iOS
+  - Android
+---
+
+# Native–JS 비동기 브리지 개선
+
+## 개요 {/* #article-introduction */}
+
+C\*erry Walk는 웹과 네이티브 사이의 호출이 반복되는 기능이었다. 콜백 함수의 이름을 문자열로 전달하는 방식으로 복잡한 로직을 작성하자 호출 지점과 후속 처리의 연결이 끊겨 읽기 어려워졌다. 이를 개선하기 위해 콜백 등록을 보조하는 방식과 UUID·Promise 기반 요청·응답 구조를 고안하고 팀 내 설명 자료로 정리했다.
+
+문제의 출발점은 C\*erry의 [C\*erry Walk](/projects/cherry/cherry-work-origin)다. 여기서는 브리지의 설계·예제와 적용 제안을 다루며 전체 호출의 전환 완료를 뜻하지 않는다.
+
+## 플랫폼 차이와 공통 호출부
+
+당시 구현에서 Android는 등록한 JavaScript 인터페이스의 메서드를 호출했고, iOS는 등록된 메시지 핸들러로 데이터를 전달했다. Android에서 가능한 동기 반환을 웹 공통 코드의 전제로 삼으면 iOS의 비동기 응답 흐름과 맞지 않았다.
+
+| 경계 | 설명 자료에서 다룬 내용 |
+| --- | --- |
+| Web → Android | 등록된 인터페이스와 `@JavascriptInterface` 메서드 호출 |
+| Web → iOS | 등록된 메시지 이름으로 `postMessage` 전달 |
+| Native → Web | JavaScript 실행으로 결과·콜백 전달 |
+| 공통 호출부 | 플랫폼별 차이를 감안해 비동기 처리 방식으로 작성 |
+
+이 표는 당시 채택한 구현 경로의 설명이다. 현재 플랫폼에서 가능한 모든 API를 비교하거나 최신 지원 범위를 안내하는 문서는 아니다.
+
+[![iOS의 WKScriptMessage 수신과 evaluateJavaScript 응답을 시험한 Swift 코드 화면](/img/work-evidence/native-js-ios-handler.png)](/img/work-evidence/native-js-ios-handler.png)
+
+*당시 Native–JS 설명 자료의 iOS 테스트 코드.* 메시지 이름으로 분기하고 JSON 파라미터를 읽어 웹 함수를 호출하는 양방향 흐름을 보여 준다. `try!`와 강제 캐스팅이 있는 실험용 예제이므로 운영용 입력 검증·오류 처리를 갖춘 코드로 제시하지 않는다.
+
+<details>
+<summary>Android에서 등록 → 응답 → 결과를 확인한 테스트 화면</summary>
+
+[![WebView에 JavaScript 인터페이스를 등록한 Android 테스트 코드](/img/work-evidence/native-js-android-registration.png)](/img/work-evidence/native-js-android-registration.png)
+
+*설명 자료의 Android 초기화 예제.* `addJavascriptInterface`로 웹에서 호출할 객체를 등록했다. 외부 웹 주소는 테스트용 공개 주소이며 서비스 주소가 아니다. 운영용 WebView의 보안 설정을 안내하는 예제로 제시하지 않는다.
+
+[![JavascriptInterface 메서드에서 웹 함수를 실행하고 콜백을 받는 코드](/img/work-evidence/native-js-android-callback.png)](/img/work-evidence/native-js-android-callback.png)
+
+*같은 자료의 응답 예제.* `webView.post` 안에서 `evaluateJavascript`를 호출한다. 문자열을 직접 결합하는 실험 코드이므로 안전한 직렬화·입력 검증까지 완성한 구현이라는 의미는 아니다.
+
+[![Android 브리지와 연결한 테스트 함수의 문자열 반환을 확인한 콘솔](/img/work-evidence/native-js-android-result.png)](/img/work-evidence/native-js-android-result.png)
+
+*브라우저 콘솔의 테스트 결과.* 예제 문자열을 이어 붙인 결과를 확인한 기록이다. 운영 사용자 데이터가 아닌 테스트 값은 그대로 보존했다.
+
+</details>
+
+## 방법 1: 콜백 이름을 직접 전달
+
+기존 방식은 호출할 네이티브 기능에 결과를 받을 JavaScript 함수 이름을 문자열로 넘기는 형태였다. 기능이 한 번만 호출되면 단순하지만 여러 호출을 순서대로 실행할 때 후속 처리가 여러 함수로 나뉘었다.
+
+```text
+웹 함수 A → 네이티브 작업 1 → 이름으로 찾은 웹 콜백 B
+웹 콜백 B → 네이티브 작업 2 → 이름으로 찾은 웹 콜백 C
+```
+
+호출 지점에서 전달하는 것은 함수 객체가 아니라 함수의 이름이다. 결과를 받는 코드를 읽기 위해 다른 위치로 이동해야 하고, 전체 작업 순서를 파악하기 어려워졌다.
+
+## 방법 2: 콜백 등록을 보조 함수로 감싸기
+
+다음 단계에서는 콜백 함수를 특별한 이름으로 전역 컨텍스트에 등록하고 그 이름을 반환하는 보조 함수를 사용했다. 네이티브가 여전히 이름으로 콜백을 호출하더라도 웹에서는 콜백 코드를 호출 지점 가까이에 작성할 수 있게 했다.
+
+```text
+웹: 콜백 함수 등록 → 호출 가능한 이름 발급 → 네이티브에 이름 전달
+네이티브: 작업 수행 → 전달받은 이름으로 결과 호출
+```
+
+기존 문자열 콜백 방식과 연결할 수 있다는 장점이 있었다. 하지만 호출이 깊게 이어지면 중첩 콜백이 늘어나는 문제는 남았다. 가독성을 개선한 것과 비동기 제어 흐름 전체를 정리한 것은 구분할 필요가 있었다.
+
+[![보조 함수로 콜백을 등록해도 세 단계 호출이 중첩되는 당시 예제](/img/work-evidence/native-js-nested-callbacks.png)](/img/work-evidence/native-js-nested-callbacks.png)
+
+*방법 2 설명에 사용한 실제 캡처.* 후속 호출이 안쪽으로 깊어지는 코드를 남겼다. 아래 콘솔의 `logic1 no data`도 원본 그대로이며, 모든 단계가 성공했다는 증빙이 아니라 중첩 구조를 설명하는 예제다.
+
+## 방법 3: UUID와 Promise 연결
+
+Promise 기반 방식에서는 요청마다 UUID를 발급하고, JavaScript 컨텍스트에 해당 요청의 `resolve`와 `reject`를 보관했다. 네이티브로는 요청 ID와 JSON 파라미터를 전달한다. 작업이 끝나면 같은 ID를 사용해 성공 또는 실패 응답을 전달하고 해당 Promise를 이어간다.
+
+```text
+Web: UUID → { resolve, reject } 저장
+    │
+    └─ 요청 ID + JSON 파라미터 → Native 작업
+                                   │
+                     요청 ID + 성공/실패 결과
+                                   ↓
+Web: 요청 ID로 컨텍스트 조회 → resolve 또는 reject
+                                   ↓
+                         then/catch 또는 async/await
+```
+
+핵심은 Promise 자체가 플랫폼을 넘어 이동하는 것이 아니라, 웹에 남겨 둔 처리 문맥을 요청 ID로 다시 찾는다는 점이다. 문자열 콜백을 여러 전역 함수로 분산하는 대신 요청과 응답의 연결 정보를 별도로 보관했다.
+
+[![UUID를 발급하고 resolve와 reject를 요청 컨텍스트에 저장한 당시 보조 코드](/img/work-evidence/native-js-request-context.png)](/img/work-evidence/native-js-request-context.png)
+
+*설명 자료의 요청 컨텍스트 등록 코드.* `_ctxs[uuid]`에 완료 함수를 저장하는 부분이다. 화면에는 발급된 식별값이나 사용자 데이터가 없으며, 컨텍스트 해제까지 보여 주는 캡처는 아니다.
+
+[![async await로 브리지 요청을 순서대로 호출하고 결과를 확인한 실제 콘솔 예제](/img/work-evidence/native-js-await-test.png)](/img/work-evidence/native-js-await-test.png)
+
+*같은 자료의 순차 호출 테스트.* 호출부의 `await`와 콘솔 결과를 함께 남겼다. 실행 시 생성된 요청 UUID만 불투명하게 가렸으며, 코드를 다시 그리거나 결과를 바꾸지 않았다.
+
+아래 코드는 호출부의 형태만 설명하는 재구성 예시다. 실제 서비스 API명과 전체 브리지 구현을 옮긴 코드는 아니다.
+
+```javascript title="호출 형태를 설명하는 예시"
+async function runFlow(bridge) {
+  try {
+    const nativeResult = await bridge.request('readValue', {});
+    return await bridge.request('applyValue', {value: nativeResult});
+  } catch (error) {
+    return {ok: false, error};
+  }
+}
+```
+
+<details>
+<summary>Java·Objective-C·브라우저의 요청 ID 기반 응답 예제</summary>
+
+요청 ID와 JSON 데이터, 성공·실패 완료 함수를 플랫폼별로 연결한 당시 설명 자료다. 코드 원문을 새로 작성한 것이 아니라 자료에 남은 캡처이며, 예외·수명 관리가 충분한 운영 코드로 소개하지 않는다. 작은 글자는 이미지를 눌러 확대할 수 있다.
+
+[![Java에서 JSON을 해석하고 요청 ID로 resolve 또는 reject를 연결한 보조 코드](/img/work-evidence/native-js-java-response.png)](/img/work-evidence/native-js-java-response.png)
+
+*Android 측 Java 예제.* 성공과 실패 경로가 동일 요청 ID를 되돌려 주도록 연결했다.
+
+[![Objective-C에서 요청 ID와 JSON 응답을 성공 또는 실패 경로로 전달하는 코드](/img/work-evidence/native-js-objc-response.png)](/img/work-evidence/native-js-objc-response.png)
+
+*iOS 측 Objective-C 예제.* 위의 Swift 메시지 수신 테스트와 달리, 공통 응답 계약을 감싸는 보조 코드다. 화면의 `@catch`가 모든 입력 오류를 처리한다는 의미는 아니다.
+
+[![브라우저 환경에서도 같은 요청 ID와 성공 실패 계약을 사용하는 보조 코드](/img/work-evidence/native-js-browser-response.png)](/img/work-evidence/native-js-browser-response.png)
+
+*브라우저 측 대체 실행 예제.* 플랫폼별 실제 기능은 달라도 호출부가 결과를 받는 방식을 맞추려 했던 구조를 보여 준다.
+
+</details>
+
+## 전체 교체보다 적용 범위 먼저 판단
+
+### 설명 자료의 테스트 캡처
+
+[![iOS 메시지 핸들러 호출과 Promise 표시, 테스트 문자열 결과가 나온 브라우저 콘솔](/img/work-evidence/native-js-promise-example.png)](/img/work-evidence/native-js-promise-example.png)
+
+*당시 설명 자료에 포함했던 테스트 예제다.* `test2` 메시지 핸들러에 JSON 파라미터를 전달한 콘솔 화면으로, 운영 사용자 정보나 내부 서비스 주소는 포함돼 있지 않다. 메타데이터만 제거하고 픽셀 내용은 유지했다. 이 캡처만으로 전체 브리지의 전환 완료나 실패·취소 처리까지 검증됐다고 판단하지 않는다.
+
+### 적용 제안과 확인 범위
+
+설명 자료는 방법 3에 네이티브 코드 변경이 필요하다는 점을 명시한다. 따라서 기존 기능을 한 번에 교체하기보다 신규 기능에 적용을 고려하는 방향을 제안했다. 기존 호출과 공존할 수 있는 방법 2와, 추가 계약이 필요한 방법 3을 구분한 것이다.
+
+27장 자료에는 Android·iOS·Web의 보조 코드와 Promise 호출 예제가 포함돼 있다. 이는 설계와 예제 구현, 지식 공유의 근거다. 모든 기존 호출을 Promise 방식으로 전환 완료했다는 근거로 사용하지는 않는다.
+
+## 후속 검토가 필요한 수명과 실패 처리
+
+요청 ID를 이용한 매핑은 결과를 올바른 호출에 연결하는 장치다. 그 자체로 비동기 요청의 수명 문제까지 모두 해결하지는 않는다.
+
+- 응답이 오지 않는 요청을 언제 정리할 것인가.
+- 성공·실패 응답 후 콜백 컨텍스트가 제거되는가.
+- WebView가 새로 로드된 뒤 이전 요청의 응답이 도착하면 어떻게 처리하는가.
+- 네이티브 예외와 JSON 변환 실패가 호출부에 전달되는가.
+
+이 항목들은 공개된 설명 자료만으로 전체 구현을 확인할 수 없어 후속 검토 사항으로 남긴다. 타임아웃·취소·중복 응답 방지를 모두 구현했다고 덧붙이지 않는다.
+
+## 작성 근거와 확인 범위 {/* #작성-근거 */}
+
+당시 작성한 「C\*erry Native–JS 통신」의 방법 1~3 비교, PromiseHelper 흐름도, Android·iOS·Web 코드 캡처와 신규 기능 적용 제안을 기준으로 정리했다. 구현 형태를 설명하는 예시는 내부 함수명을 제거해 재구성했으며 실제 운영 코드를 대체하는 라이브러리 예제가 아니다.

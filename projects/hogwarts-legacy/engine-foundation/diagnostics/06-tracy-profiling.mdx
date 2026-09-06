@@ -1,0 +1,113 @@
+---
+id: hogwarts-tracy-profiling
+project: hogwarts-legacy
+title: Tracy 기반 실시간 프로파일링
+description: 프레임 단계부터 개별 객체까지 병목을 좁혀 가도록 계측 계층을 구성한 과정
+slug: /hogwarts-legacy/tracy-profiling
+order: 60
+featured: true
+tags:
+  - Tracy
+  - Profiling
+  - Performance
+---
+
+# Tracy 기반 실시간 프로파일링
+
+## 배경과 목표 {/* #도입-배경 */}
+
+프레임 저하는 “느리다”는 현상만으로 원인을 찾기 어렵다. 렌더링, PhysX, NvCloth, 이펙트, GameObject Update가 한 프레임에 이어지고 Worker Thread까지 사용하므로, CPU Timeline에서 실제 실행 순서와 소요 시간을 확인할 도구가 필요했다.
+
+기존 디버그 로그는 사건을 확인하는 데는 유용하지만 매 프레임의 중첩 구간과 Thread 관계를 보기 어렵다. 그래서 Tracy 0.13.1을 Engine에 통합했다.
+
+## DLL 경계 통합
+
+Tracy Client 구현은 Engine DLL에서 한 번만 컴파일한다. Engine은 `TRACY_EXPORTS`, Client는 `TRACY_IMPORTS`를 사용해 양쪽이 동일한 Profiler Context를 공유하도록 구성했다.
+
+```text
+Engine.dll
+├─ TracyClient.cpp
+├─ TRACY_ENABLE
+└─ TRACY_EXPORTS
+
+Client.exe
+├─ TRACY_ENABLE
+└─ TRACY_IMPORTS
+```
+
+Engine과 Client가 각자 Tracy Client를 만들면 Capture Session이 분리되거나 Symbol이 중복될 수 있기 때문에 DLL 소유 위치를 명확히 했다.
+
+## 프레임의 큰 구간부터 계측
+
+먼저 `CBaseApp`의 프레임 루프를 큰 단계로 나누고 마지막에 `FrameMark`를 기록했다.
+
+```cpp
+{
+    ZoneScopedN("FrameStart");
+    FrameStart(deltaTime);
+}
+{
+    ZoneScopedN("FixedUpdate");
+    FixedUpdate(fixedDelta);
+}
+{
+    ZoneScopedN("Update");
+    Update(deltaTime);
+}
+{
+    ZoneScopedN("FrameEnd");
+    FrameEnd();
+}
+
+FrameMark;
+```
+
+그 다음 `CGameInstance`에서 Manager 단위 Zone을 추가했다. Capture에서 Update가 길면 `EffectManager`, `LuaManager`, `ParticleManager`, `PhysXManager`, `GameObjectManager`, `Renderer` 순으로 내려가며 원인을 좁힐 수 있다.
+
+Renderer에는 Shadow, NonAlpha, Lighting, Alpha, Effect, Post Process 같은 Pass 단위 Zone을, PhysX에는 Simulation·Transform Sync·Event Dispatch를, NvCloth에는 Fabric 생성·Simulation·CPU Readback·Collision 갱신 구간을 기록했다.
+
+## Worker Thread 추적
+
+일반 Worker와 Render Worker가 Task를 실행할 때 Zone을 만들고 Task 이름을 `TracyMessage`로 전송했다. 메인 Thread의 대기 시간만 보는 대신 어떤 작업이 어느 Worker에서 실행됐는지 Timeline에서 함께 확인할 수 있다.
+
+```cpp
+ZoneScopedN("RenderWorkerTaskExecution");
+TracyMessage(task.name.c_str(), task.name.size());
+task.function();
+```
+
+## 개별 GameObject 계측의 비용 제어
+
+개별 GameObject마다 동적 이름을 생성하면, 병목을 찾기 위한 계측 자체가 프레임 저하를 만들 수 있었다. 그래서 GameObject Manager의 상세 계측은 ImGui Toggle이 켜져 있고 Tracy Client가 실제 연결된 경우에만 활성화했다.
+
+```cpp
+const bool traceObjects =
+    detailedObjectProfiling && TracyIsConnected;
+
+ZoneNamedN(objectZone, "GameObject_Update", traceObjects);
+
+if (traceObjects)
+{
+    const std::string label = GetGameObjectDebugLabel(object);
+    ZoneNameV(objectZone, label.data(), label.size());
+}
+```
+
+동적 Label에는 Handle Index, Derived Type, Object Tag를 넣었다. 평소에는 Manager 수준의 저비용 Zone만 보고, 특정 객체가 의심될 때 상세 Toggle을 켜는 2단계 방식이다.
+
+## 실제 활용 흐름
+
+1. Frame Graph에서 Spike가 발생한 프레임을 찾는다.
+2. FrameStart, FixedUpdate, Update, Render, Present 중 큰 구간을 확인한다.
+3. GameInstance의 Manager Zone으로 범위를 좁힌다.
+4. PhysX·NvCloth·Renderer처럼 세부 Zone이 있는 시스템을 내려간다.
+5. GameObject Update가 원인이면 상세 객체 계측을 잠시 활성화한다.
+6. 수정 전후 Capture를 같은 장면과 조건에서 비교한다.
+
+이 방식은 망토 Simulation, GameObject Tree/View 재구축, ImGui Multi-Viewport Present처럼 서로 다른 종류의 Frame Drop을 코드 추측이 아니라 실행 구간으로 분리하는 기반이 됐다.
+
+## 한계와 개선 방향 {/* #주의점과-다음-단계 */}
+
+Profiler는 원인을 자동으로 해결하지 않고, 계측 역시 비용이 있다. 특히 동적 문자열과 지나치게 작은 Zone은 Capture 크기와 런타임 오버헤드를 늘린다. 따라서 상시 계측은 프레임·Manager 수준으로 유지하고 세부 계측은 필요할 때만 켰다.
+
+현재 문서에는 비교 가능한 Capture 수치를 임의로 넣지 않았다. 포트폴리오 최종본에는 동일 장면의 수정 전후 Capture, CPU Frame Time, 호출 횟수를 함께 제시해 최적화 결과를 정량적으로 보강할 예정이다.

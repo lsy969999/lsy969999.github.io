@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "game-client-test",
+  "title": "게임 클라이언트 포트폴리오",
+  "subtitle": "Hogwarts Legacy - Physics & Simulation",
+  "includeProfile": true,
+  "documents": [
+    {
+      "title": "NvCloth 기반 망토 시뮬레이션 안정화",
+      "route": "/projects/hogwarts-legacy/nvcloth-cape"
+    }
+  ],
+  "outputFileName": "GameClient_Portfolio_Test.pdf"
+}

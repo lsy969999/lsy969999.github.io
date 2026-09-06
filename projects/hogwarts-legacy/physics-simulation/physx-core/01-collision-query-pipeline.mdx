@@ -1,0 +1,236 @@
+---
+id: hogwarts-physx-collision-query
+project: hogwarts-legacy
+title: PhysX 충돌 필터와 Query 파이프라인
+description: PhysX Actor와 Shape를 게임 객체의 Layer, Handle, SubIndex, 지연 Callback으로 연결한 물리 판정 구조
+slug: /hogwarts-legacy/physx-collision-query
+order: 100
+featured: true
+tags:
+  - PhysX
+  - Collision
+  - Scene Query
+  - Character Controller
+---
+
+# PhysX 충돌 필터와 Query 파이프라인
+
+## 배경과 목표 {/* #문제 */}
+
+맵에 Actor·Shape를 배치하고 JSON으로 저장·로드하는 도구는 [런타임 충돌 배치 에디터](/projects/hogwarts-legacy/collision-proxy-editor)에서 별도로 설명한다. 이 문서는 생성된 물리 객체의 판정과 데이터 전달에 집중한다.
+
+게임의 물리 판정은 단순히 두 객체가 충돌했는지만 알려주는 것으로 부족했다.
+
+플레이어 한 명도 Character Controller Capsule, 부위별 Hurtbox, 발과 손의 Collider를 함께 가질 수 있다. 하나의 RigidBody에 여러 Shape가 붙을 수도 있다. 이때 Actor 정보만 전달하면 어느 부위가 충돌했는지 구분할 수 없고, PhysX Pointer를 다음 Frame까지 보관하면 객체 제거와 슬롯 재사용 이후 안전하지 않다.
+
+또한 실제로 서로 밀어내는 Simulation 충돌과 공격 판정·카메라 장애물 검사에 사용하는 Scene Query는 목적이 다르다. 두 정책을 하나의 Mask로 처리하면 Hurtbox가 캐릭터를 밀어내거나, Query 전용 Shape가 불필요한 Contact를 만드는 문제가 생긴다.
+
+이를 해결하기 위해 PhysX 계층을 다음 네 부분으로 나눴다.
+
+```text
+Collider·CCT 생성
+   ↓
+Actor / Shape Registry에 Handle·Type·SubIndex 등록
+   ↓
+Simulation Filter 또는 Scene Query 실행
+   ↓
+PhysX 결과를 Engine Data로 변환
+   ↓
+Handle 검증 후 GameObject Callback 전달
+```
+
+## Simulation과 Query 정책 분리
+
+모든 Collider와 CCT는 `PX_FILTER_DESC`로 네 가지 정보를 받는다.
+
+```cpp
+struct PX_FILTER_DESC
+{
+    uint32_t iLayer;
+    uint32_t iSimulationMask;
+    uint32_t iQueryMask;
+    uint32_t iNotifyFlags;
+};
+```
+
+`iLayer`는 Shape 자신의 분류이고, `iSimulationMask`는 물리 Simulation에서 접촉을 허용할 상대 Layer 집합이다. 실제 Contact는 양쪽이 서로를 허용할 때만 생성한다.
+
+```text
+(A.Layer & B.SimulationMask) != 0
+                 AND
+(B.Layer & A.SimulationMask) != 0
+```
+
+한쪽만 상대를 허용하는 비대칭 설정은 충돌하지 않는다. 캐릭터는 지형과 충돌하지만 지형은 캐릭터를 허용하지 않는 식의 설정 실수를 Filter 단계에서 차단한다.
+
+`iQueryMask`는 CCT가 `move()`할 때 내부적으로 수행하는 Sweep에서 충돌 대상으로 볼 Layer를 지정한다. 반면 일반 `RayCast`, `Sweep`, `Overlap`은 호출자가 `PX_QUERY_FILTER_DESC::iQueryMask`를 직접 지정하고, 그 Mask와 대상 Shape의 `iLayer`를 비교한다.
+
+즉 일반 Scene Query의 판단은 다음과 같다.
+
+```text
+(Query.Mask & Shape.Layer) != 0
+```
+
+일반 Query 호출자의 Mask와 Collider의 `iQueryMask`를 서로 비교하는 구조는 아니다. Collider에 저장된 `iQueryMask`는 CCT 이동과 CCT 상호작용 정책에 사용된다.
+
+## Shape 참여 여부를 독립적으로 제어
+
+Layer Mask와 별개로 Shape가 어느 기능에 참여할지도 나눴다.
+
+- `SetSimulationEnabled()`: Contact 또는 Trigger Simulation 참여 여부
+- `SetQueryEnabled()`: Raycast·Sweep·Overlap 대상 여부
+- `SetTrigger()`: 밀어내는 Contact 대신 진입·이탈 Event 생성
+- `SetEnabled()`: Simulation과 Query를 함께 켜거나 끄는 편의 API
+
+Simulation을 꺼도 Scene Query Shape Flag가 살아 있으면 Query에는 계속 검출된다. 반대로 Query를 꺼도 Simulation Shape라면 다른 물체와 실제로 충돌한다.
+
+이 분리 덕분에 Hurtbox는 캐릭터를 밀어내지 않으면서 공격 Overlap에만 검출되도록 만들 수 있고, 장식용 Debris는 Simulation에는 참여하지만 게임 판정 Query에서는 제외할 수 있다.
+
+## Actor와 Shape를 별도로 등록한 이유
+
+PhysX Callback과 Query는 `PxActor*`, `PxShape*`를 반환한다. 엔진은 이를 GameObject와 연결하기 위해 두 Registry를 유지한다.
+
+```text
+Actor Registry
+PxActor* → GameObject Handle + Actor Type
+
+Shape Registry
+PxShape* → GameObject Handle + Shape Type + SubIndex
+```
+
+Actor Registry는 소유 GameObject를 찾는 기본 경로다. Shape Registry는 하나의 Actor에 여러 Collider가 붙었을 때 정확한 충돌 부위를 찾는 경로다.
+
+`SubIndex`는 Client가 정의하는 Shape의 의미다. 예를 들어 같은 Box Collider라도 왼발, 오른발, Hurtbox, 문짝, 통과 Trigger를 서로 다른 값으로 등록할 수 있다. CCT가 내부적으로 생성하는 Capsule도 Shape Registry에 등록하므로 일반 Collider와 같은 방식으로 식별된다.
+
+Registry에는 GameObject Pointer가 아니라 Generation Handle을 저장한다. 객체가 제거된 후 Callback이 지연되어 도착하더라도 Handle을 다시 검증해 잘못된 객체에 Event가 전달되는 것을 막는다. PhysX 객체가 해제될 때는 대응하는 Actor와 Shape 항목도 함께 등록 해제한다.
+
+Registry 접근은 PhysX Manager를 생성한 Owner Thread로 제한하고, Debug 빌드에서 잘못된 Thread 접근을 Assert로 검출한다.
+
+## 공통 Scene Query API
+
+PhysX의 원시 API를 게임 코드에서 직접 사용하지 않도록 세 종류의 Query를 Engine Descriptor로 감쌌다.
+
+| Query | 용도 | 제공 형태 |
+| --- | --- | --- |
+| RayCast | 시선·바닥·직선 장애물 검사 | Single / Multiple |
+| Sweep | 이동 구간의 연속 충돌 검사 | Box·Sphere·Capsule, Single / Multiple |
+| Overlap | 현재 영역에 포함된 대상 검사 | Box·Sphere·Capsule, Single / Multiple |
+
+Query Filter에서는 다음 조건을 호출마다 지정한다.
+
+- 검사할 Collision Layer Mask
+- Static Actor 포함 여부
+- Dynamic Actor 포함 여부
+- Trigger Shape 포함 여부
+- 무시할 GameObject Handle
+
+방향 벡터는 Engine 내부에서 정규화하고, 길이가 0이거나 유효하지 않은 Quaternion·Geometry가 들어오면 PhysX 호출 전에 실패시킨다. Single Query는 가장 가까운 Blocking Hit를 받고, Multiple Query는 모든 결과를 Touch로 수집한다. Ray와 Sweep의 Multiple 결과는 거리가 가까운 순서로 정렬한다.
+
+투사체는 이전 위치에서 현재 위치까지 Sphere Sweep을 수행해 빠른 이동 중의 터널링을 줄이고, 범위 공격은 Hurtbox Layer만 대상으로 Overlap을 수행할 수 있다.
+
+```cpp
+PX_SWEEP_DESC desc{};
+desc.tGeometry.eType = PX_QUERY_GEOMETRY_TYPE::SPHERE;
+desc.tGeometry.fRadius = projectileRadius;
+desc.tPose.vPosition = previousPosition;
+desc.vDirection = moveDirection;
+desc.fMaxDistance = moveDistance;
+desc.tFilter.iQueryMask = targetMask | worldMask;
+desc.tFilter.hIgnoreGameObject = GetHandle();
+
+PX_SWEEP_RESULT hit{};
+if (physics->Sweep(desc, hit))
+{
+    // hit.hGameObject와 hit.iShapeSubIndex로 후속 판정
+}
+```
+
+## Query 결과의 수명과 상세 정보
+
+Raycast와 Sweep 결과에는 충돌 위치, 표면 법선, 이동 거리와 함께 다음 객체 정보가 들어간다.
+
+- `hGameObject`: 저장하거나 다음 Frame에 넘길 수 있는 검증 가능한 Handle
+- `pGameObject`: 현재 호출 안에서 즉시 사용하기 위한 편의 Pointer
+- `eShapeType`: Box·Sphere·Capsule·Convex·Triangle Mesh 구분
+- `iShapeSubIndex`: 동일 객체 안의 세부 Shape 구분
+
+결과를 장기간 보관할 때는 Pointer가 아니라 Handle을 저장하고, 사용하는 시점에 Object Manager를 통해 다시 조회한다.
+
+Multiple API는 호출자가 최대 결과 수를 정한다. Status를 요청하면 내부 Buffer를 `iMaxHit + 1`만큼 확보해 결과가 제한을 넘었는지 확인한다.
+
+```cpp
+PX_QUERY_MULTIPLE_STATUS status{};
+std::vector<PX_OVERLAP_RESULT> results{};
+physics->OverlapMultiple(desc, results, 32, &status);
+```
+
+`status.bTruncated == true`는 최소 한 개 이상의 결과가 잘렸다는 뜻이다. 전체 충돌 개수를 계산해 주는 값은 아니다. Overlap의 일반적인 작은 요청은 64개 Inline Buffer에서 처리하고, 더 큰 요청만 동적 Buffer로 전환해 반복적인 Heap 할당을 줄였다.
+
+## Contact와 Trigger Callback 보강
+
+Simulation Filter는 Contact 생성과 Event 알림을 분리한다. 충돌 자체는 기본 Contact Flag로 처리하고, `iNotifyFlags`에 따라 Touch Found, Touch Lost, Contact Point 추출을 추가한다.
+
+Contact Callback은 제거된 Actor와 Shape가 포함된 Pair를 먼저 제외한다. 유효한 Pair에서는 최대 8개의 접촉점을 Engine Data로 변환한다.
+
+- World Position
+- World Normal
+- Impulse
+- Separation
+- 양쪽 Shape Type과 SubIndex
+
+Trigger Callback도 Trigger 여부, 양쪽 Shape Type과 SubIndex를 함께 전달한다. 따라서 하나의 GameObject가 여러 Trigger를 가질 때도 별도의 Trigger 전용 클래스를 만들지 않고 SubIndex로 진입 지점을 구분할 수 있다.
+
+## Callback을 즉시 호출하지 않는 이유
+
+PhysX Callback 안에서 GameObject 로직을 바로 실행하면 객체 제거, Component 변경, 새로운 물리 요청이 Simulation 처리와 겹칠 수 있다. Listener는 Callback에서 Handle과 값 데이터만 Pending Queue에 저장한다.
+
+```text
+PxScene::simulate()
+   ↓
+PxScene::fetchResults()
+   ↓
+활성 RigidBody Transform 동기화
+   ↓
+Pending Physics Event Dispatch
+```
+
+Dispatch 시점에 Handle을 다시 해석하고 다음 객체에는 Event를 전달하지 않는다.
+
+- 이미 제거되었거나 제거 예약된 객체
+- Object Pool로 반환되어 Managed Update가 비활성화된 객체
+- Generation이 달라져 Handle이 무효가 된 객체
+
+양쪽 객체에는 동일한 충돌을 각자의 관점으로 전달한다. 두 번째 객체에 전달할 때 Self와 Other의 Shape 정보를 교환하고, Contact Normal과 Impulse의 방향도 반전한다. 게임 객체는 항상 자신을 기준으로 동일한 Callback 코드를 작성할 수 있다.
+
+## Character Controller의 별도 경로
+
+CCT는 일반 RigidBody Contact와 달리 `move()` 과정에서 Shape·Controller·Obstacle Hit Report를 발생시킨다. 이 결과도 즉시 게임 로직을 호출하지 않고 Pending Queue에 넣고, 물리 Step 종료 후 `OnCCTShapeHit`, `OnCCTControllerHit`, `OnCCTObstacleHit`으로 전달한다.
+
+CCT의 Capsule Shape에도 SubIndex를 등록해 상대가 기본 CCT Capsule과 별도 Hurtbox 중 무엇에 닿았는지 구분할 수 있다. `GetStandingShapeData()`는 현재 밟고 있는 Shape의 Handle·Type·SubIndex를 반환하고, Shape 정보가 없을 때만 Actor Registry로 대체한다.
+
+CCT별 Behavior Callback은 다음 이동 정책을 선택한다.
+
+- `CAN_RIDE`: 움직이는 물체를 타고 이동
+- `SLIDE`: 다른 CCT나 Shape 표면을 따라 미끄러짐
+- `USER_DEFINED_RIDE`: Client가 탑승 이동을 직접 처리
+- `PREVENT_UPWARD_PROJECTION`: Dynamic Shape가 아래로 파고들 때 생기는 비의도성 상승 억제
+- `CONSTRAIN_HORIZONTAL_TO_INPUT`: 회전 문 등이 입력에 없던 횡이동을 추가할 때 반대 방향 Sweep으로 보정
+
+여러 CCT가 동시에 이동할 때는 `PxControllerManager::computeInteractions()`를 Fixed Step 전에 호출한다. 전역 Toggle로 기능을 끌 수 있고, CCT 두 개의 Layer와 Query Mask가 서로 허용될 때만 Interaction을 계산한다.
+
+## 한계와 개선 방향 {/* #선택한-설계와-한계 */}
+
+이 구조는 물리 Simulation, Scene Query, CCT 이동을 같은 Layer 체계로 표현하면서도 각자의 필터 의미는 분리한다. PhysX Pointer를 외부에 장기 보관하지 않고 Handle과 값 데이터로 경계를 만든 점이 객체 생명주기 안정성의 핵심이다.
+
+현재 남아 있는 개선점은 다음과 같다.
+
+- Scene Query API 자체는 `simulate()` 진행 중 호출을 막는 명시적인 상태 검사를 제공하지 않는다. Query 호출 구간을 Main·Fixed Thread의 안전한 시점으로 제한하는 검증을 추가할 수 있다.
+- RaycastMultiple과 SweepMultiple은 요청마다 임시 Vector Buffer를 만든다. 반복 호출이 많은 경로는 재사용 Scratch Buffer 또는 Small Buffer를 고려할 수 있다.
+- CCT Interaction Filter는 CCT Actor가 Shape 하나를 가진다는 PhysX Controller 전제를 사용한다. Engine에서 복합 CCT를 지원한다면 Filter 정책을 다시 정의해야 한다.
+- Layer 이름은 Client에서 등록하지만 충돌 정책은 각 Descriptor에 분산되어 있다. 규모가 커지면 검증 가능한 Collision Matrix Asset을 도입할 수 있다.
+
+## 구현 결과 {/* #결과 */}
+
+RigidBody Contact, Trigger, CCT Hit, Raycast, Sweep, Overlap을 하나의 Handle·Shape Metadata 체계로 연결했다. 게임 코드는 물리 객체의 Pointer와 수명 규칙을 직접 다루지 않고도 충돌 지점과 부위, 대상 객체를 식별할 수 있게 됐다.
+
+또한 Hurtbox처럼 Query에만 필요한 Shape와 실제로 밀어내야 하는 Body를 분리하고, 고속 투사체·범위 공격·카메라·바닥 검사에 같은 Query API를 재사용할 수 있게 했다.

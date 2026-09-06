@@ -1,0 +1,58 @@
+---
+id: cherry-overview
+project: cherry
+title: C*erry 기부 플랫폼 개발과 운영
+description: 기부 플랫폼의 기능 개발과 C*erry Run 가입 급증 시 PostgreSQL 성능 개선 경험
+slug: /cherry/overview
+order: 0
+featured: true
+tags:
+  - Spring Boot
+  - PostgreSQL
+  - Web
+---
+
+# C\*erry 기부 플랫폼 개발과 운영
+
+## 개요 {/* #article-introduction */}
+
+이\*넷의 기부 플랫폼 스타트업 부서인 C\*erry에서 사용자 페이지와 관리자 기능을 개발하고 서비스를 유지보수했다. 외부 회사와 연계한 후원 페이지, 시즌별 챌린지 이벤트처럼 기존 서비스 위에 추가되는 요구사항을 구현하는 업무도 수행했다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 경력 구간 | 2020.10 – 2022.12, 이\*넷 C\*erry 부서 |
+| 후속 운영 작업 | 2023.07, 주식회사 C\*erry 재직 중 C\*erry Run 가입 급증 대응 |
+| 주요 기술 | Spring Boot, PostgreSQL, Thymeleaf, JavaScript, Bootstrap |
+| 사용자 기능 | 기부·캠페인 관련 페이지, 외부 회사 연계 후원 페이지 |
+| 관리자 기능 | 검색 조건과 데이터 테이블을 사용하는 관리 화면 |
+| 업무 협의 | 운영자와의 반복 요구사항 협의에서 Excel로 정리 가능한 내용을 문서화 |
+| 관련 서비스 | 시즌별 C\*erry Run 챌린지, 걷기 기능인 C\*erry Walk |
+
+표의 기간은 경력 구간이다. 개별 기능을 모두 같은 시점에 개발했다는 의미는 아니다. 서비스 전체를 처음부터 단독 설계한 프로젝트가 아니라 기존 서비스의 기능 개발·인수인계·운영에 참여한 경험이다.
+
+## 추천 문서 {/* #먼저-읽을-대표-사례 */}
+
+### C\*erry Run 가입 스파이크와 PostgreSQL 인덱스 개선
+
+이벤트 개시 후 가입 요청이 급증하자 사용자 조회의 풀스캔을 추적했다. 일반 인덱스로 해결되지 않은 대소문자 무시 검색에는 표현식 인덱스를 적용하고 실행계획 변경을 확인했다.
+
+[문제 분석과 검증 과정 읽기](/projects/cherry/postgresql-query-plan)
+
+느린 조회를 찾고 실제 비교 조건에 맞춰 수정한 과정을 보여 주는 사례다. 성능 캡처의 노드별 측정값과 서비스 전체 성능은 구분해서 설명한다. 2023년 주식회사 C\*erry 재직 중 수행한 후속 운영 대응이지만 대상 서비스에 따라 C\*erry에 정리했다.
+
+## 관련 문서 {/* #함께-읽을-문서 */}
+
+| 관심 영역 | 문서 | 확인할 내용 |
+| --- | --- | --- |
+| 기능 개발 | [사용자·관리자 기능과 제휴·시즌 이벤트](/projects/cherry/service-features) | 관리 화면 공통화, 소울 후원·스니커즈 데이 페이지, Strava 연동·재고관리, C\*erry Run 인수인계 |
+| 요구사항 협의 | [운영자 요구사항의 Excel 문서화](/projects/cherry/service-features#운영자-요구사항의-excel-문서화) | 반복 미팅 중 문서로 정리할 수 있는 내용을 남긴 업무 방식 개선 |
+| 서비스 배경 | [C\*erry Walk의 시작과 서비스 확장](/projects/cherry/cherry-work-origin) | C\*erry의 걷기 기능이 C\*erry World의 기반이 된 과정 |
+| 공통 운영 업무 | [정기 배포와 브랜치 이주 사례](/projects/cherry/release-branch-management) | 기존 Kubernetes·GitLab 환경의 팀 공통 배포 담당, C\*erry의 별도 브랜치 정리 계획 |
+| 보안 사고 대응 | [Argo CD 외부 노출 관련 대응](/projects/cherry/argocd-security-response) | 로그 추적, 내부망 전환·버전 업그레이드, 회고상 JWT 취약점 후보와 확인 범위 |
+| 사내 연구 | [사내 연구 프로젝트와 기술 지식 공유](/projects/cherry/internal-research) | Flutter·Firebase 앱 연구, JWT·ORM 학습·공유와 실무 적용 경험 구분 |
+
+관련 프로젝트인 [C\*erry Card](/projects/cherry-card/overview)에서는 충전·환불 계산을, [C\*erry World](/projects/cherry-world/overview)에서는 신규 앱·플랫폼 연계와 운영 문제 분석을 다룬다. 각 작업의 상세 설명은 해당 프로젝트에 모았다.
+
+## 작성 근거와 확인 범위 {/* #작성-근거와-범위 */}
+
+당시 업무 기록의 관리자 페이지·제휴 페이지·C\*erry Run 항목, 2023년 7월 DB 작업 자료와 담당자 회고를 바탕으로 작성했다. 서비스별 작업 구분은 소울 후원 페이지와 C\*erry Run은 C\*erry, Apple 로그인 마이그레이션은 C\*erry World라는 담당 범위 확인을 반영했다. 원본 내부 화면과 사용자 데이터는 공개 문서에 포함하지 않았다.

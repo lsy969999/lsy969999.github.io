@@ -1,0 +1,157 @@
+---
+id: hogwarts-gameobject-prototype-lifecycle
+project: hogwarts-legacy
+title: GameObject와 Prototype 생명주기
+description: Prototype 복제부터 Component 구성, Manager 등록, Update 참여와 지연 파괴까지 객체 생명주기를 연결한 과정
+slug: /hogwarts-legacy/gameobject-prototype-lifecycle
+order: 45
+featured: true
+tags:
+  - C++20
+  - GameObject
+  - Prototype
+  - Component
+---
+
+# GameObject와 Prototype 생명주기
+
+## 배경과 목표 {/* #문제 */}
+
+게임에 등장하는 객체는 생성 방법만 같다고 끝나지 않는다. Component를 구성하고, 고유 Handle을 받아 Layer에 등록되며, 정해진 Update 단계에 참여한 뒤 안전한 시점에 제거되어야 한다.
+
+초기 구조에서는 이 단계들의 경계가 명확하지 않았다. 특히 `Initialize()` 안에서 자기 Handle로 Manager를 조회하면 아직 Slot과 Layer 등록이 끝나지 않아 `nullptr`이 반환될 수 있었다. 객체 생성과 등록, 사용 가능한 시점을 하나의 생명주기로 정리할 필요가 있었다.
+
+## Prototype과 Instance 분리
+
+공통 설정을 가진 원본 객체는 `CPrototypeManager`에 Group과 Tag 조합으로 등록한다. 실제 GameObject나 Component가 필요할 때 원본의 `Clone()`을 호출해 Instance를 만든다.
+
+```text
+Prototype 등록
+   ↓
+Group + Tag 조회
+   ↓
+Clone(pArg)
+   ↓
+Instance Initialize
+```
+
+Prototype Registry는 `shared_mutex`로 보호한다. 조회 중에는 `shared_lock`, 추가·삭제에는 `unique_lock`을 사용한다. Clone 과정 전체에서 Lock을 유지하지 않고, Registry 안에서는 Prototype의 `shared_ptr`만 확보한 뒤 Lock 밖에서 실제 복제를 수행한다.
+
+```cpp
+SPtr<CPrototype> prototype;
+{
+    std::shared_lock lock{m_PrototypeMutex};
+    prototype = FindPrototype(groupTag, prototypeTag);
+}
+
+return prototype ? prototype->Clone(pArg) : nullptr;
+```
+
+이렇게 하면 복제 과정에서 다른 Prototype이나 Resource를 다시 조회하더라도 같은 Mutex에 재진입하지 않는다. 실제로 Prototype Lock을 두 번 획득하던 경로를 이 방식으로 수정했다.
+
+## GameObject 생성 순서
+
+GameObject Manager는 Instance 생성 전에 Handle Slot을 먼저 확보한다. 생성 인자에 Handle을 넣은 뒤 Prototype을 복제하고, 성공한 객체를 Slot과 Layer에 등록한다.
+
+```text
+Handle Slot 확보
+   ↓
+GAMEOBJECT_DESC에 Handle 전달
+   ↓
+Prototype Clone과 Initialize
+   ↓
+Object Slot 소유권 이전
+   ↓
+Layer에 Handle 등록
+   ↓
+OnRegisteredToManager 호출
+```
+
+Clone이나 Initialize가 실패하면 선점한 Slot을 초기화하고 Free Slot 목록으로 되돌린다. 성공했을 때만 객체 소유권을 `CSlot`로 이동한다.
+
+객체 외부에는 포인터 대신 Generation Handle을 돌려준다. 따라서 Slot이 재사용되더라도 이전 Handle이 새로운 객체를 가리키는 것을 막을 수 있다.
+
+## 등록 완료 Hook
+
+`Initialize()`가 실행될 때 객체는 아직 Manager의 Slot과 Layer에 등록되지 않았다. Lua Script처럼 생성 직후 자기 Handle로 Context를 구성하거나, 다른 객체가 자신을 조회해야 하는 기능은 이 시점에 실행할 수 없다.
+
+이를 위해 다음 Hook을 추가했다.
+
+```cpp
+virtual void OnRegisteredToManager() {}
+```
+
+Manager가 Slot과 Layer 등록을 모두 마친 직후 한 번 호출한다. 이 시점부터 다음 동작이 안전하다.
+
+- 자기 Handle을 통한 Manager 재조회
+- 같은 Layer의 다른 객체 검색
+- Lua Context에 Owner Handle 전달
+- Manager 등록을 전제로 하는 Controller 연결
+
+이 Hook은 Lua 전용 기능이 아니라 모든 GameObject가 사용할 수 있는 생명주기 경계다.
+
+## Component 소유와 조회
+
+GameObject는 Component를 `unique_ptr`로 소유한다. 순회에 적합한 Vector와 Tag 조회용 Hash Map을 함께 사용한다.
+
+```cpp
+std::vector<std::pair<StringID, UPtr<CComponent>>> m_Components;
+std::unordered_map<StringID, size_t> m_ComponentsLookup;
+```
+
+Component 추가 시 Vector Index를 Lookup에 기록하고, 조회할 때는 `StringID`로 Index를 찾은 뒤 자체 Runtime Type Cast를 적용한다. Component 제거는 마지막 원소와 교환하는 방식으로 Vector의 중간 이동을 줄이고, 이동된 원소의 Lookup Index만 갱신한다.
+
+Transform과 기본 Collider 역시 같은 Prototype 복제 경로로 생성된다. 각 Component는 자신을 소유한 GameObject 포인터를 Descriptor로 전달받는다.
+
+## Update 참여 정책
+
+모든 객체가 네 개의 Managed Update를 전부 사용할 필요는 없다. Prototype에서 `GAMEOBJECT_UPDATE_LOOP` 비트 마스크를 설정해 참여 단계를 정적으로 분류한다.
+
+- `PRIORITY`
+- `FIXED`
+- `UPDATE`
+- `LATE`
+- `ALL` 또는 `NONE`
+
+Manager는 이 분류로 단계별 View를 만들고, 매 프레임 전체 객체를 순회하며 빈 함수를 호출하는 비용을 줄인다.
+
+런타임에는 `SetManagedUpdateEnabled()`를 Master Switch로 사용한다. Pool에 반환된 객체처럼 Manager에는 남아 있어야 하지만 게임 로직 실행은 멈춰야 하는 객체를 위해 마련했다. 활성 상태가 바뀌면 파생 클래스가 `OnManagedUpdateEnabled()`와 `OnManagedUpdateDisabled()`에서 Physics나 부가 상태를 함께 전환할 수 있다.
+
+## 지연 파괴
+
+Update 도중 객체를 즉시 제거하면 현재 순회 중인 Container와 외부 참조가 무효화될 수 있다. `SetPendingDestroy()`는 실제 메모리를 바로 해제하지 않고 Handle을 Manager의 제거 Queue에 넣는다.
+
+```text
+게임 로직에서 파괴 요청
+   ↓
+Pending Handle Queue
+   ↓
+FrameEnd에서 Layer 분리
+   ↓
+Slot Reset과 Generation 증가
+   ↓
+Free Slot 반환
+```
+
+파괴 요청은 수집되기 전까지 취소할 수 있지만, Layer에서 논리적으로 분리된 이후에는 확정 파괴로 처리한다. 같은 요청이 여러 번 Queue에 쌓이지 않도록 상태 변화가 있을 때만 등록한다.
+
+## 시스템 연결
+
+이 생명주기는 독립된 기능이 아니라 다른 Foundation 시스템의 접점이다.
+
+- StringID: Prototype·Component·Layer Tag
+- Derived Type: Component와 Prototype의 Typed Cast
+- Generation Handle: 외부 객체 참조와 유효성 검사
+- Frame Loop: 단계별 Update와 FrameEnd 파괴
+- Object Pool: Manager 소유권을 유지한 활성·비활성 전환
+- Lua: 등록 완료 후 Owner Context 구성
+
+## 한계와 개선 방향 {/* #트레이드오프 */}
+
+Prototype 복제는 동일한 초기 구성을 빠르게 반복하는 데 적합하지만, 런타임 조합이 매우 다양한 객체에는 Factory나 데이터 기반 조립 방식이 더 적합할 수 있다. 현재 `CObjectFactory` 초안은 실제 생성 경로에 연결되어 있지 않으므로 이 구조의 성과로 포함하지 않았다.
+
+또한 `CGameInstance`가 여러 Manager API를 한곳에 노출해 사용은 단순하지만 의존성이 넓다. 장기적으로는 생성 Context나 제한된 Service Interface를 전달해 객체가 전역 façade에 직접 의존하는 범위를 줄일 수 있다.
+
+## 구현 결과 {/* #결과 */}
+
+Prototype 복제, Component 구성, Manager 등록, Update 참여, 파괴가 하나의 순서로 연결됐다. 객체가 언제부터 조회 가능한지와 언제 실제로 제거되는지가 명확해졌고, Handle Manager·Pool·Lua 같은 후속 시스템이 같은 생명주기 위에서 동작할 수 있게 됐다.

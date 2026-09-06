@@ -1,0 +1,242 @@
+---
+id: minecraft-shadow-map-render-passes
+project: minecraft
+title: Shadow Map과 다중 렌더 패스 구성
+description: 단일 직교 Shadow Map, 그림자 시점의 청크 컬링, 알파 테스트·본 변환, 복셀 조명과 그림자 합성을 연결한 DirectX 11 렌더링 구조
+slug: /minecraft/shadow-map-render-passes
+order: 110
+featured: true
+tags:
+  - Rendering
+  - Shadow
+  - DirectX11
+  - C++
+---
+
+# Shadow Map과 다중 렌더 패스 구성
+
+## 배경과 목표 {/* #해결하려던-문제 */}
+
+복셀의 Sky Light와 Block Light만으로 기본적인 밝기는 표현할 수 있지만, 태양 방향에 따라 지형이나 캐릭터가 드리우는 그림자를 직접 표현하지는 못한다. 움직이는 팔다리와 구름의 형상도 깊이에 반영되어야 하며, 식생처럼 투명한 부분이 있는 텍스처는 그림자에서도 구멍이 유지되어야 한다.
+
+이 프로젝트에서는 태양 시점의 직교 카메라로 깊이를 먼저 기록하고, 일반 렌더링에서 그 깊이를 비교하는 Shadow Mapping을 연결했다. 청크·엔티티·구름은 렌더 패스에 따라 다른 셰이더를 선택하며, 결과를 기존 복셀 조명에 추가적인 감쇠로 적용한다.
+
+현재 구조는 Shadow Map 한 장을 사용하는 방식이다. Cascaded Shadow Maps, 여러 광원의 그림자, PCF 커널이나 물리 기반 간접광 시스템까지 구현한 것은 아니다.
+
+[복셀 조명 전파](/projects/minecraft/voxel-light-propagation)는 월드 데이터의 밝기를 갱신하는 과정이고, Shadow Map은 현재 형상을 빛의 시점에서 렌더링하는 과정이다. 두 기능은 서로를 대체하지 않는다.
+
+그림자에 사용하는 시간·태양 방향과 구름 형상의 생성 과정은 [낮밤 주기와 절차적 하늘·구름 표현](/projects/minecraft/day-night-sky-clouds)에서 이어서 설명한다.
+
+## 렌더 그룹과 렌더 패스의 구분
+
+`RENDERGROUP`은 오브젝트를 어느 순서의 목록에 넣을지 구분한다. `RENDERPASS`는 이번 렌더링의 목적과 시점을 구분한다.
+
+| 구분 | 예시 | 하는 일 |
+| --- | --- | --- |
+| 렌더 그룹 | PRIORITY, NONBLEND, BLEND, SKYBOX, UI | 렌더러가 목록을 순회하는 순서 |
+| 렌더 패스 | DEFAULT, SHADOW, PLAYER_INVEN_UI | 같은 오브젝트가 어떤 시점·목적으로 그려지는지 |
+| 렌더 컨텍스트 | View, Projection, ViewProjection, eye | 해당 호출에서 사용할 카메라 데이터 |
+| 패스 플래그 | `m_RenderPassFlags` | 오브젝트가 특정 패스에 참여하는지 |
+
+`RenderNonBlend(ctx)`는 NONBLEND 목록의 오브젝트마다 `HasRenderPass(ctx.pass)`를 검사한 뒤 Render를 호출한다. GameObject의 기본 플래그는 DEFAULT이며, 그림자가 필요한 클래스는 SHADOW를 명시적으로 추가한다.
+
+현재 Shadow Map 생성에서는 NONBLEND 목록만 순회한다. 따라서 Shadow 셰이더를 구현하거나 플래그만 추가했다고 모든 그룹의 오브젝트가 자동으로 그림자를 만드는 것은 아니다. 등록 그룹, 패스 참여 여부, 패스별 Render 구현을 함께 확인해야 한다.
+
+## 프레임의 렌더링 흐름
+
+`CRenderer::Draw()`는 다음 순서로 대상을 바꿔 가며 렌더링한다.
+
+```text
+낮 조건: Shadow 깊이 패스
+  → 요청된 경우: 인벤토리 플레이어 미리보기 패스
+  → Offscreen: 월드 렌더링
+  → 같은 Offscreen: UI·커서 UI·툴팁
+  → 선택적 사망 화면 필터·필터 이후 텍스트
+  → Fullscreen Quad로 Back Buffer 출력
+```
+
+월드 렌더링 내부 순서는 Priority → NonBlend → Blend → Skybox → Collider다. 이후 UI 카메라의 행렬을 설정해 UI를 렌더링한다. 마지막에는 현재 결과 텍스처를 Fullscreen Quad로 Back Buffer에 그린다.
+
+이 과정에서 인벤토리 미리보기는 별도 카메라·색상 텍스처·깊이 버퍼를 사용하는 패스다. UI 오브젝트를 그리는 것과 인벤토리에 표시할 3D 플레이어를 먼저 텍스처로 만드는 것을 분리했다.
+
+이 구조는 순서가 코드에 명시된 다중 패스 렌더러다. 자원 의존성을 선언하면 실행 순서를 자동 결정하는 Render Graph는 아니며, `RenderBlend()`도 확인한 함수에서는 등록 순서대로 순회한다.
+
+## Shadow Map 자원 구성
+
+`InitializeShadow()`는 4096×4096 크기의 텍스처 한 장과 전용 Viewport를 만든다.
+
+| 항목 | 현재 설정 |
+| --- | --- |
+| 텍스처 | `R32_TYPELESS`, 4096×4096, Mip 1, Array 1 |
+| Bind Flags | DEPTH_STENCIL + SHADER_RESOURCE |
+| 깊이 기록 View | `D32_FLOAT` DSV |
+| 깊이 조회 View | `R32_FLOAT` SRV |
+| MSAA | Sample Count 1 |
+| 비교 샘플러 | Comparison Point, LESS, Border Address |
+
+깊이를 기록할 때와 셰이더에서 읽을 때 같은 자원을 다른 View로 해석한다. 그림자를 위한 색상 Render Target을 별도로 만드는 것이 아니라, DSV에 기록한 깊이를 SRV로 읽는다.
+
+원시 텍셀 데이터만 계산하면 `4096 × 4096 × 4`로 64 MiB다. DSV·SRV를 만들었다고 각각 별도의 64 MiB 텍스처가 생성되는 것은 아니다. 실제 드라이버 할당·정렬 비용은 이 계산과 구분해야 한다.
+
+## 태양 시점의 직교 카메라
+
+월드 레벨은 이름이 `Shadow`인 카메라를 등록한다. Projection은 직교 투영이며 너비·높이는 각각 128, Near는 0.1, Far는 300이다.
+
+`CWorldManager::UpdateSunShadowCamera()`는 하늘 회전각으로 위쪽 벡터를 X축 회전시켜 태양 방향을 구한다. 이름이 `Player`인 카메라 위치를 중심으로 태양 방향에 150만큼 떨어진 곳에 그림자 카메라를 놓고 반대 방향을 바라보게 한다.
+
+임의의 활성 카메라를 따라가는 것이 아니라 `Player`라는 등록 카메라를 직접 찾는다. 카메라 이름이나 다른 관찰 시점을 추가할 때 이 추적 정책도 따로 확인해야 한다.
+
+### 카메라 갱신 주기와 깊이 렌더링 주기는 다르다
+
+그림자 카메라는 시간 누적값이 1초 이상일 때만 위치·방향·View를 갱신한다. 처리 후 누적값을 0으로 만들므로 초과 시간은 버린다.
+
+반면 렌더러는 `WorldDayFactor > 0.64`인 매 프레임 Shadow Map을 지우고 다시 그린다. 카메라 갱신을 1초로 제한했다고 깊이 패스의 Draw 비용도 초당 한 번으로 줄어든 것은 아니다. 엔티티나 구름의 현재 형상은 같은 카메라 시점에서 계속 다시 렌더링된다.
+
+이 구분은 성능과 시각적 품질을 함께 판단할 때 중요하다. 카메라 갱신을 뜸하게 하면 시점 변화는 계단식으로 나타날 수 있지만, 매 프레임 깊이 패스 비용은 그대로 남는다.
+
+### 위치 스냅의 현재 범위
+
+코드는 `128 / 4096 = 0.03125`를 한 텍셀에 대응하는 단위로 두고 그림자 카메라 Eye의 X·Y·Z를 그 간격에 맞춰 반올림한다. 작은 위치 변화에 따른 흔들림을 줄이려는 처리다.
+
+다만 스냅은 빛의 View 공간이 아니라 월드 X·Y·Z 축에서 수행한다. 태양 방향이 기울어진 상태에서도 투영된 Shadow Texel이 항상 고정되는 완전한 Light-Space Texel Snapping이라고 설명할 수는 없다. 해상도와 직교 범위도 각각 하드코딩되어 있어 한쪽만 바꾸면 스냅 간격이 맞지 않는다.
+
+태양 시선과 Up이 거의 평행하면 대체 Up을 계산하는 코드도 있지만, 현재 함수의 `LookAt()` 호출에는 이 지역 Up을 전달하지 않는다. `UpdateViewMatrix()` 역시 카메라 Desc의 Up을 읽는다. 따라서 평행 방향에 대한 보호가 실제로 끝까지 연결되어 있다고 볼 수 없으며, 정오 부근 방향은 검증 대상으로 남겼다.
+
+## 깊이 패스: 쓰기 전에 읽기 바인딩 해제
+
+Shadow 패스 시작 시 Pixel Shader 슬롯 4의 SRV를 null로 만든다. 이어서 색상 RTV 없이 Shadow DSV를 출력 대상으로 바인딩하고 깊이를 1로 지운다. Viewport는 Shadow Map의 4096×4096 크기로 바꾼다.
+
+동일한 텍스처를 깊이 출력과 Shader Resource 입력에 동시에 사용하는 충돌을 피하기 위해 역할 전환 시 바인딩을 정리하는 것이다. 이후 일반 장면의 출력 대상으로 전환한 다음 Shadow SRV를 슬롯 4에 바인딩한다.
+
+깊이 패스에서는 `ctx.pass = SHADOW`로 설정하고, Shadow 카메라의 View·Projection으로 컨텍스트와 프레임 상수 버퍼를 갱신한다. 객체별 WVP를 계산할 때 이 컨텍스트를 사용해야 빛의 시점에서 깊이가 기록된다.
+
+패스 진입 코드가 모든 셰이더·Rasterizer·Depth State를 완전히 초기화하는 구조는 아니다. 실제 상태 설정은 각 렌더링 구현에도 분산되어 있으므로 새 렌더러를 추가할 때 이전 Draw의 상태에 의존하지 않는지 확인할 필요가 있다.
+
+## 플레이어 시점과 다른 청크 컬링
+
+`CShadowCamera`는 직교 카메라일 때 범위를 나타내는 Oriented Box를 만든다. 너비·높이의 절반을 X·Y Half Extents로 두고, Z 중심과 Half Extents를 Far의 절반으로 잡는다. LateUpdate에서 이를 카메라 Transform으로 변환해 `Coll_ShadowCamera` 그룹에 등록한다.
+
+`CVoxelManager3::RenderShadow()`는 이 Box와 각 청크 Box를 교차 검사한다. 통과한 청크의 Solid 메시를 그리고, 같은 결과 목록을 재사용해 Alpha Test 메시를 그린다. 그림자 카메라 Collider가 없으면 모든 로드된 청크를 대상으로 한다.
+
+일반 렌더링은 `Coll_PlayerCamera`로 별도 컬링한다. 플레이어에게 보이지 않는 청크도 화면 안으로 그림자를 드리울 수 있으므로 그림자 대상을 플레이어의 가시 목록으로만 제한하지 않는 것이 중요하다.
+
+현재 검사는 청크 단위이며 가려진 청크를 판정하는 Occlusion Culling은 아니다. 직교용 Box의 Z 범위도 Near부터 Far가 아니라 0부터 Far를 포함하므로 투영 범위와 정확히 같은 모양은 아니며 Near 쪽을 조금 더 넓게 포함한다.
+
+## 형상별 그림자 참여
+
+### Solid와 Alpha Test 블록
+
+청크의 그림자 경로는 Solid와 Alpha Test를 나눠 렌더링한다. Alpha Test 셰이더는 텍스처를 샘플링해 `clip(albedo.a - 0.5)`로 투명한 부분을 버린다. 남은 픽셀만 깊이를 기록해 식생 등의 텍스처 전체 사각형이 그림자로 찍히지 않도록 한다.
+
+Pixel Shader의 반환형이 void여도 깊이 기록은 가능하다. 색상 출력을 만들지 않고 래스터라이즈된 깊이와 clip 결과를 이용한다.
+
+이 함수에는 일반 렌더링의 `DrawWater()`에 대응하는 별도 물 메시 그리기 단계가 없다. 월드에서 보이는 모든 표면이 같은 그림자 생성 경로에 들어가는 것은 아니다.
+
+### 엔티티의 본 자세
+
+플레이어·돼지·좀비 등은 SHADOW 플래그를 추가하고 모델 렌더링에서 Shadow 전용 셰이더를 고른다. `Shadow_Entity.hlsl`도 정점의 본 인덱스로 현재 본 행렬을 적용한 뒤 빛의 WVP로 변환한다. 텍스처 Alpha에 대해서도 0.5 기준 clip을 수행한다.
+
+[절차적 본 애니메이션](/projects/minecraft/entity-model-procedural-animation)에서 만든 현재 자세를 깊이 패스에도 적용하므로 팔·다리가 기본 자세의 그림자로 남지 않는다.
+
+플레이어는 일반 패스에서 FPS일 때 전신을 그리지 않지만, Shadow는 별도 함수로 전신 모델을 렌더링한다. 카메라에 몸이 보이는 조건과 바닥에 몸의 그림자가 생기는 조건을 분리한 사례다.
+
+반대로 화살은 모델 컴포넌트에 Shadow 셰이더 선택 기능이 있어도 현재 클래스에서 SHADOW 플래그를 켜지 않는다. 공통 렌더링 기능을 사용할 수 있다는 사실과 현재 그림자 생성에 참여한다는 사실을 구분해야 한다.
+
+### 구름과 드롭 아이템
+
+구름도 NONBLEND에 등록되고 DEFAULT·SHADOW에 참여한다. Shadow 셰이더는 인스턴스 월드 행렬과 빛의 ViewProjection을 적용해 구름 메시의 깊이를 기록한다.
+
+현재 구름 Shadow Pixel Shader에는 밀도·투명도에 따른 투과 처리가 없다. 메시 형상으로 빛을 가리는 방식이지 반투명 구름의 부피 밀도나 부드러운 광학 투과를 계산하는 방식은 아니다.
+
+`CDropItem`과 `CDropBlock`에도 전용 Shadow 셰이더 선택과 패스 플래그가 있다. 서로 다른 정점 구성의 오브젝트를 같은 패스 계약으로 묶되, 필요한 변환은 각 셰이더가 담당한다.
+
+## 일반 렌더링에서 그림자 조회
+
+일반 패스는 플레이어 카메라로 화면 좌표를 계산하는 동시에, 월드 위치를 빛의 ViewProjection으로도 변환해 `posLight`를 Pixel Shader에 넘긴다.
+
+```text
+lightClip = worldPosition × lightViewProjection
+lightNDC = lightClip.xyz / lightClip.w
+shadowUV.x = lightNDC.x × 0.5 + 0.5
+shadowUV.y = -lightNDC.y × 0.5 + 0.5
+```
+
+Shadow UV가 0~1 범위 안이면 `SampleCmpLevelZero()`로 현재 깊이와 Shadow Map 깊이를 비교한다. 범위 밖이면 빛을 받는 값 1을 사용한다.
+
+현재 샘플러는 Comparison Point 필터이며 비교 함수는 LESS다. 여러 주변 Texel의 비교 결과를 평균 내는 PCF 반복문은 없다. `SampleCmpLevelZero()`를 호출한다고 자동으로 부드러운 다중 샘플 그림자가 되는 것은 아니다.
+
+확인한 수신 셰이더는 UV 경계는 검사하지만 빛 공간 Z 범위나 W의 유효성에 대한 별도 조건을 두지 않는다. 유효한 그림자 카메라·행렬을 전제로 한 경로이므로 범위 끝과 카메라 미등록 상태도 점검할 필요가 있다.
+
+## Self-Shadow 보정 정책
+
+같은 표면을 깊이로 기록하고 다시 비교하면 정밀도 차이 때문에 자신을 가렸다고 판정하는 Shadow Acne가 생길 수 있다. 현재 코드에는 형상별로 다른 보정이 들어 있다.
+
+| 경로 | 현재 보정 |
+| --- | --- |
+| Solid 블록 깊이 패스 | Front Face Culling |
+| Alpha Test 블록 깊이 패스 | Cull None, DepthBias 10, SlopeScaledDepthBias 0.5 |
+| Solid 블록 그림자 조회 | 법선 방향으로 위치를 0.02 이동시켜 빛 공간 좌표 계산 |
+| Alpha Test 블록 그림자 조회 | 대응 위치 오프셋 0 |
+| 엔티티 그림자 조회 | 비교할 깊이에서 0.001 차감 |
+
+이는 모든 오브젝트에 동일한 Bias를 적용하는 구조가 아니다. 블록과 얇은 식생, 엔티티에 다른 정책을 사용한다. Bias를 크게 하면 Acne가 줄 수 있지만 접촉한 그림자가 떨어져 보일 수 있으므로 형상과 거리별로 확인해야 한다.
+
+이 표는 코드의 현재 설정을 설명한 것이며, 모든 태양 각도에서 적절한 값이라고 검증한 결과는 아니다.
+
+## 복셀 조명과 그림자 합성
+
+블록 셰이더는 먼저 Sky Light·Block Light, 낮 계수, AO와 정점 색을 사용해 기본 색상을 계산한다. 그 위에 Shadow Map에 의한 감쇠 계수를 곱한다.
+
+그림자 강도는 낮 계수 0.64부터 1 사이에서 증가한다.
+
+```text
+intensity = saturate((dayFactor - 0.64) / 0.36)
+minimum = lerp(1.0, 0.5, intensity)
+shadowFactor = lerp(minimum, 1.0, max(shadowVisibility, blockLight))
+```
+
+태양에 가려졌더라도 Block Light가 강하면 감쇠가 줄어든다. Sky Light가 0인 지하에서는 감쇠 계수를 1로 두어 별도 태양 그림자로 다시 어둡게 하지 않는다.
+
+낮 계수가 0.64 이하이면 렌더러는 깊이 패스를 생략하고 셰이더의 그림자 강도도 0으로 만든다. 다만 일반 패스의 Shadow SRV 바인딩과 셰이더 샘플 자체를 명시적으로 끄는 공통 플래그는 없다. 유효한 투영·샘플 결과를 전제로 감쇠 영향이 사라지는 방식이다.
+
+현재 작업 트리의 블록 셰이더에는 최종적으로 `albedo.rgb × 0.1`을 더하는 기존 수정도 있다. 이는 그림자 알고리즘이 아니라 추가 밝기 항이며, 이번 문서 작업에서 넣은 변경이 아니다.
+
+이 합성은 게임의 가시성을 조절하기 위한 조명 규칙이다. 여러 광원의 직접광·간접광을 물리적으로 분리해 계산한 결과로 설명하지 않는다.
+
+## 비용과 현재 한계
+
+4096² 깊이 텍스처는 해상도가 높지만 단일 128×128 직교 범위에만 대응한다. 넓은 지역과 카메라 근처의 세부 품질을 동시에 나누는 Cascade는 없다. 범위를 넓히면 같은 텍셀 수가 더 넓은 월드 영역을 담당한다.
+
+낮에는 같은 장면 일부를 일반 패스와 깊이 패스에서 다시 그린다. Alpha Test 그림자는 텍스처 샘플과 clip도 수행하며, 그림자 카메라 갱신 주기를 줄여도 이 비용은 별도로 남는다.
+
+또한 청크 컬링을 위한 목록은 Shadow Render 안에서 생성되고 로드된 청크를 순회한다. 현재 소스 분석만으로 GPU 깊이 패스, CPU 컬링, Draw 제출 중 어느 것이 병목인지 단정할 수는 없다.
+
+개선 우선순위는 다음과 같이 잡을 수 있다.
+
+1. 해상도·직교 범위·스냅 간격의 설정 일원화.
+2. Light-Space 스냅과 카메라 갱신 주기, Up 벡터 연결 검증.
+3. 패스 시작 시 필요한 상태와 유효한 그림자 데이터 여부 명시.
+4. GPU Timestamp와 CPU 계측으로 깊이 패스·컬링 비용 분리.
+5. 품질 요구에 따라 비교 선형 필터·PCF 또는 Cascade 검토.
+
+이번 문서화에서는 게임 렌더러나 셰이더를 수정하지 않았다.
+
+## 시연과 검증 항목
+
+- 플레이어 화면 밖의 지형이 화면 안으로 드리우는 그림자 확인.
+- FPS에서 전신 표시 여부와 플레이어 그림자 표시를 비교.
+- 걷기·공격 시 본 자세와 그림자 자세의 일치 확인.
+- 식생·엔티티 텍스처의 투명 부분이 깊이를 쓰지 않는지 확인.
+- 낮 계수 0.64 부근에서 그림자 강도 전환 확인.
+- 플레이어 이동과 태양 회전 시 스냅·1초 갱신에 따른 경계 변화 확인.
+- 태양이 Up 방향에 가까워질 때 행렬과 그림자 상태 확인.
+- 횃불 주변·지하에서 복셀 밝기와 그림자 감쇠 비교.
+- 구름·드롭 아이템·물·화살의 실제 패스 참여 여부 비교.
+
+이번 작업은 소스 기반 구조 정리이며 게임 실행 시연이나 성능 수치를 측정하지 않았다. 그래픽 디버거로 깊이 텍스처와 Draw별 상태를 확인한 자료를 추가하면 렌더링 경로를 더 명확히 제시할 수 있다.
+
+## 작성 근거와 확인 범위 {/* #구현-근거 */}
+
+`Renderer.cpp`, `ShadowCamera.cpp`, `CameraObject.cpp`, `WorldManager.cpp`, `LevelOverWorld.cpp`, `VoxelManager3.cpp`, `GameInstance.cpp`의 자원·상태 구성, `PlayerEntity.cpp`, `ComEntityModel.cpp`, `Cloud.cpp`, `DropItem.cpp`, `DropBlock.cpp`와 관련 Shadow·Block·Entity 셰이더를 확인했다.
+
+관련 이력은 `044bcad`의 인벤토리 플레이어 렌더 패스, `e31a5ff`의 그림자 광원 관련 작업, `45a6854`의 엔티티·구름 그림자 패스 추가다. 기준 체크아웃은 `e38a951`이며 실제 호출되는 `CWorldManager::UpdateSunShadowCamera()`와 미호출 대안 함수·주석 코드를 구분했다. 리소스 서브모듈의 기존 셰이더 수정은 그대로 보존했다.

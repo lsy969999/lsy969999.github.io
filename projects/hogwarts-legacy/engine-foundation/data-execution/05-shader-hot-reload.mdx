@@ -1,0 +1,167 @@
+---
+id: hogwarts-shader-hot-reload
+project: hogwarts-legacy
+title: Shader Hot Reload 파이프라인
+description: HLSL 변경을 감지하고 관련 Shader Resource만 다시 컴파일해 실행 중 렌더링 결과에 반영하는 개발 도구
+slug: /hogwarts-legacy/shader-hot-reload
+order: 47
+featured: true
+tags:
+  - DirectX 11
+  - HLSL
+  - Hot Reload
+  - Win32
+---
+
+# Shader Hot Reload 파이프라인
+
+## 배경과 목표 {/* #문제 */}
+
+Shader 색상이나 조명 계산을 조정할 때마다 Client를 종료하고 다시 빌드하면 작은 변경도 확인 주기가 길어진다. 반대로 실행 중 HLSL 파일을 바로 컴파일하려면 파일 저장 이벤트의 중복, Source와 실행 폴더의 경로 차이, Include 변경, 컴파일 실패 시 기존 Shader 보존까지 함께 처리해야 한다.
+
+이를 위해 파일 감시와 Resource 재빌드를 분리한 Debug 전용 Hot Reload 경로를 구성했다.
+
+```text
+HLSL 저장
+   ↓
+Shader Watcher Thread
+   ↓
+변경 경로 Queue
+   ↓
+Main Thread에서 Debounce와 파일 복사
+   ↓
+Resource Manager Path Lookup
+   ↓
+관련 Shader Compile → D3D Shader 교체
+```
+
+## Source와 Runtime Shader 경로
+
+실행 파일은 각 프로젝트의 Bin 디렉터리를 Working Directory로 사용한다. 반면 수정하는 원본 Shader는 Engine과 Client의 Source Tree에 있다.
+
+Watcher는 두 위치를 감시한다.
+
+- `../ShaderFiles`: 실행 프로젝트의 Shader
+- `../../Engine/ShaderFiles`: 공통 Engine Shader
+
+변경이 확인되면 원본 경로에서 `ShaderFiles/` 이후의 상대 경로를 구하고, 실행 폴더의 같은 구조로 복사한다. 이후 Runtime 경로를 Resource Manager 규칙으로 정규화해 실제 로드된 Shader Resource를 찾는다.
+
+따라서 개발자는 Source Tree의 HLSL을 수정하고, 실행 중인 Client는 갱신된 Runtime 복사본을 같은 Resource 경로로 다시 읽는다.
+
+## Win32 디렉터리 감시
+
+`CShaderWatcher`는 Win32 `ReadDirectoryChangesW`를 사용한다. 디렉터리마다 감시 Thread와 Directory Handle 하나를 만들고, 하위 디렉터리까지 다음 변경을 확인한다.
+
+- 마지막 쓰기 시간 변경
+- 파일 이름 변경
+
+이벤트 중 확장자가 `.hlsl` 또는 `.hlsli`인 파일만 수집한다. 경로 구분자는 `/`로 통일하고, 같은 경로가 이미 대기 중이면 중복으로 추가하지 않는다.
+
+Watcher Thread는 D3D 객체나 Resource Registry를 직접 변경하지 않는다. Mutex로 보호된 변경 경로 목록에 기록만 남긴다.
+
+```cpp
+std::lock_guard lock{m_Mutex};
+if (std::ranges::find(m_ChangedFiles, changedPath) ==
+    m_ChangedFiles.end())
+{
+    m_ChangedFiles.push_back(std::move(changedPath));
+}
+```
+
+Main Thread는 `GetChangedFilesAndClear()`로 Vector를 Swap해 가져온다. Lock을 잡은 채 파일 복사나 Shader 컴파일을 수행하지 않는다.
+
+## 중복 이벤트를 모으는 Debounce
+
+Editor가 파일 하나를 저장해도 임시 파일 생성, 이름 변경, 본문 기록 때문에 여러 이벤트가 연속으로 발생할 수 있다. 이벤트마다 컴파일하면 저장 한 번에 동일 Shader가 여러 번 재빌드된다.
+
+Resource Manager는 경로별 마지막 변경 시각을 기록하고 150ms가 지난 항목만 처리한다.
+
+```text
+첫 변경 이벤트 ─┐
+추가 저장 이벤트 ├─ 마지막 시각 갱신
+이름 변경 이벤트 ┘
+                    ↓ 150ms
+                 한 번 처리
+```
+
+파일이 저장되는 순간 Editor가 잠시 잠그거나 교체해 복사가 실패할 수도 있다. 이 경우 요청을 제거하지 않고 마지막 시각을 갱신해 다음 Frame에서 다시 시도한다.
+
+## Resource Path 역조회
+
+Resource Manager는 논리적인 Group·Tag Registry 외에 실제 파일 경로에서 Resource를 찾는 Path Lookup을 유지한다. Hot Reload는 정규화된 Runtime 경로로 이 Lookup을 조회한다.
+
+같은 파일이 여러 Tag나 Group에 등록되어 있어도 해당 경로를 참조하는 모든 Resource를 찾을 수 있다. 각 Resource가 `CResShader` 계열인지 자체 Runtime Type으로 확인한 뒤 `Reload()`를 호출한다.
+
+```text
+변경된 Runtime Path
+   ↓
+Path Lookup
+   ↓
+Resource 목록
+   ↓ IsA(CResShader)
+Shader Resource만 Reload
+```
+
+Path Lookup API는 내부 Weak Pointer를 외부에 그대로 노출하지 않고 유효한 `shared_ptr` Snapshot을 반환한다. Registry Lock을 해제한 뒤에도 재빌드 대상의 수명이 유지된다.
+
+## HLSL과 Include 처리 차이
+
+직접 로드된 `.hlsl` 파일은 Path Lookup에서 관련 Shader를 찾아 선택적으로 다시 빌드한다.
+
+`.hlsli`는 독립 Resource가 아니라 여러 Shader가 Include하는 공통 코드다. 현재는 Include Dependency Graph를 유지하지 않으므로 변경 경로에서 Shader Resource를 찾지 못하면 전체 Shader를 다시 빌드한다.
+
+이는 불필요한 컴파일이 생기더라도 공통 조명·행렬·Material 정의 변경이 일부 Shader에만 반영되는 오류를 피하기 위한 정책이다.
+
+## 컴파일과 D3D 객체 교체
+
+`CResShader::Reload()`는 기존 상태를 기억한 뒤 다시 `Load()`를 실행한다. Shader Compile은 기존 Blob에 바로 덮어쓰지 않고 지역 `ComPtr<ID3DBlob>`에 결과를 받는다. 컴파일이 성공했을 때만 Resource의 Blob으로 이동한다.
+
+일반적인 VS·PS·GS·CS·HS·DS Resource도 새 D3D11 Shader 객체를 지역 `ComPtr`에 생성하고, 생성에 성공한 뒤 기존 멤버와 교체한다. Vertex Shader는 Reflection으로 Input Layout까지 새로 구성한 후 Shader와 Layout을 함께 교체한다.
+
+```text
+새 HLSL Compile
+   ↓ 실패 ── 기존 Shader 유지
+새 D3D Shader 생성
+   ↓ 실패 ── 기존 Shader 유지
+필요한 부가 객체 생성
+   ↓ 성공
+기존 멤버와 교체
+```
+
+문법 오류가 난 Shader를 저장해도 마지막으로 성공한 렌더링 상태를 가능한 한 유지하고, Compile Error Blob의 메시지와 파일 경로를 출력한다.
+
+## Main Thread 적용
+
+Watcher는 별도 Thread에서 파일 이벤트만 수집하지만, 파일 복사와 Shader 재컴파일은 `CGameInstance`의 Update 경로에서 실행한다.
+
+D3D Resource 교체와 Resource Registry 접근을 임의의 Watcher Thread에서 수행하지 않기 위한 경계다. 또한 Tracy의 `ShaderHotReload_Update` Zone에서 Hot Reload로 발생한 Frame 비용을 구분할 수 있다.
+
+Hot Reload는 `_DEBUG` 빌드에서만 Watcher를 만들고 Update한다. Release 실행에는 디렉터리 감시 Thread와 Runtime 컴파일 비용이 포함되지 않는다.
+
+## 수동 전체 재빌드
+
+자동 감시 외에도 Resource Manager ImGui에서 `Rebuild All Shaders`를 실행할 수 있다. Path Lookup Snapshot을 순회하면서 Shader Pointer를 Set으로 중복 제거해, 같은 Resource가 여러 경로 항목에서 발견되어도 한 번만 Reload한다.
+
+자동 감시가 놓친 변경을 확인하거나 공통 Include 영향 범위를 강제로 갱신할 때 사용할 수 있다.
+
+## 종료 처리
+
+Resource Manager가 해제될 때 Shader Watcher를 먼저 제거한다. Watcher는 실행 Flag를 내리고 `CancelIoEx`와 `CloseHandle`로 대기 중인 디렉터리 I/O를 깨운 뒤 모든 Thread를 `join()`한다.
+
+그 후 Pending 변경 목록을 비운다. Resource Registry가 파괴된 뒤 Watcher Thread가 변경 이벤트를 전달하는 상황을 방지한다.
+
+## 한계와 개선 방향 {/* #트레이드오프와-개선점 */}
+
+현재 구조에는 다음 한계가 있다.
+
+- Win32 디렉터리 API에 의존하므로 다른 운영체제에서는 Watcher 구현을 교체해야 한다.
+- Include Dependency Graph가 없어 `.hlsli` 변경은 전체 Shader를 재빌드한다.
+- 컴파일이 Main Thread에서 동기적으로 수행되어 전체 재빌드 시 순간적인 Frame 지연이 생길 수 있다.
+- 오류 알림이 Message Box 중심이라 반복적인 Shader 수정 흐름을 방해할 수 있다.
+- Stream-Out처럼 생성 API가 멤버 주소를 직접 사용하는 특수 Shader는 동일한 Transactional Swap 규칙으로 통일할 필요가 있다.
+
+확장한다면 Background Thread에서 Bytecode까지만 컴파일하고, Main Thread에서는 검증된 Bytecode로 D3D 객체를 교체하는 2단계 Pipeline을 적용할 수 있다. Include Dependency를 수집하면 전체 재빌드 대신 영향을 받는 Shader만 선택할 수 있다.
+
+## 구현 결과 {/* #결과 */}
+
+Client를 재시작하지 않고 HLSL 수정 결과를 실행 중 확인할 수 있게 됐다. 파일 감시는 Background Thread, Resource 조회와 D3D 객체 교체는 Main Thread로 분리했고, 중복 저장 이벤트와 Include 변경, 컴파일 실패, 종료 시 대기 I/O까지 하나의 개발용 Pipeline으로 처리했다.

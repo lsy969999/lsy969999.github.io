@@ -1,0 +1,57 @@
+---
+id: cherry-world-ios-webview-compatibility
+project: cherry-world
+title: iOS WebView의 성능 저하와 문법 호환성 분석
+description: 댄스 챌린지의 Safari 성능 문제와 C*erry World 메인 화면의 JavaScript 문법 미지원 분석
+slug: /cherry-world/ios-webview-compatibility
+order: 50
+featured: false
+tags:
+  - iOS
+  - WebView
+  - JavaScript
+  - Troubleshooting
+---
+
+# iOS WebView의 성능 저하와 문법 호환성 분석
+
+## 개요 {/* #article-introduction */}
+
+웹 화면을 개발하면서 Safari WebView에서 느려지는 현상과 오래된 iPhone에서 화면이 깨지는 현상을 각각 분석했다. 겉으로는 둘 다 모바일에서 화면이 정상적으로 보이지 않는 문제였지만, 하나는 CSS 표현의 성능 문제이고 다른 하나는 JavaScript 문법 지원 문제였다.
+
+| 사례 | 발생 맥락 | 기록에 남은 분석 |
+| --- | --- | --- |
+| 댄스 챌린지 | C\*erry의 행사 화면 개발 | Safari WebView의 느려짐을 디버깅하고 CSS blur 관련 성능 자료 확인 |
+| 메인 페이지 | C\*erry World 화면 개발 | 오래된 iPhone에서 예외 발생, `#` private 문법의 브라우저 지원 여부 확인 |
+
+플랫폼 문제를 함께 읽을 수 있도록 이 문서에 모았지만, 댄스 챌린지를 C\*erry World에서 새로 만든 기능으로 분류하지 않는다.
+
+## 댄스 챌린지: 표시되지만 느린 화면 {/* #1-댄스-챌린지-표시되지만-느린-화면 */}
+
+댄스 챌린지 기능을 구현하던 중 Safari WebView에서 화면이 느려지는 현상을 확인했다. 디버깅 과정에서 CSS 표현을 살폈고, 당시 노트에는 Safari의 `filter: blur()` 성능 문제를 다룬 자료를 찾아본 기록이 남아 있다.
+
+당시에는 이를 최신 CSS 지원의 제약으로 요약했지만, 문서에서는 CSS를 아예 인식하지 못하는 경우와 표현은 되지만 느린 경우를 구분한다. 남아 있는 내용은 후자에 가까운 성능 조사 기록이다.
+
+확인 가능한 기여는 실행 환경에 따라 발생하는 문제를 디버깅하고 CSS blur 관련 동작까지 조사한 것이다. 최종 CSS 수정 내역이나 전후 프레임 측정값은 남아 있지 않으므로 특정 속성 추가로 해결했다거나 렌더링 속도가 몇 배 개선됐다고 적지 않는다.
+
+행사 화면의 개발 맥락은 [사용자·관리자 기능과 제휴·시즌 이벤트](/projects/cherry/service-features)에서 이어 볼 수 있다.
+
+## 메인 페이지: 문법 미지원으로 깨지는 화면 {/* #2-메인-페이지-문법-미지원으로-깨지는-화면 */}
+
+C\*erry World 메인 페이지에서는 오래된 iPhone의 Safari WebView에서 JavaScript 예외가 발생해 화면이 깨졌다. 원인을 조사하면서 `#`을 사용하는 private 문법을 확인했고, Can I Use에서 브라우저 지원 여부를 찾아본 과정을 기록했다.
+
+여기서 `#` private는 단순히 없는 함수를 호출한 문제가 아니라 JavaScript 언어 문법에 해당한다. MDN도 이를 별도의 문법을 사용하는 클래스 private 요소로 설명한다. 따라서 문법 미지원 문제와 런타임 API 부재를 같은 것으로 다루면 대응 방향이 달라질 수 있다. [MDN: Private elements](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes/Private_elements)
+
+원문에는 이 경험을 통해 폴리필의 필요성을 느꼈다고 적었지만, 특정 폴리필을 적용해 해결했다는 기록은 없다. 이 사례는 브라우저 지원 범위를 확인한 분석 경험으로 소개하고, 실제로 확인되지 않은 빌드 변환 설정이나 적용 패키지를 수정 성과로 추가하지 않는다.
+
+## 두 문제를 구분하며 얻은 기준
+
+같은 웹 코드를 사용해도 사용자 단말에서 발생한 증상을 하나의 ‘모바일 오류’로 묶으면 조사 범위가 모호해진다. 화면은 표시되지만 느린지, 스크립트 실행이 막혀 화면 구성이 실패하는지부터 나누어 볼 필요가 있다.
+
+이 경험에서 남은 점검 기준은 개발 환경에서 화면이 보인다는 사실만으로 지원 대상 환경에서도 정상 동작한다고 판단하지 않는 것이다. 이후 다시 같은 문제를 다룬다면 대상 OS·WebView 버전, 오류 위치와 사용 문법, 시각 효과를 나누어 재현 조건을 남기는 것이 중요하다. 이는 회고에서 정리한 기준이며 당시 모든 조합의 자동 테스트를 구축했다는 의미는 아니다.
+
+개발 환경을 정리한 별도 사례로 [TypeScript 점진 도입](/projects/cherry-world/incremental-typescript)이 있다. 다만 TypeScript 도입 자체가 위 호환성 문제를 해결했다는 인과관계로 설명하지 않는다. 네트워크 사용량 문제는 [Android WebView 캐시 정책 개선](/projects/cherry-world/webview-cache-policy)에서 다룬다.
+
+## 작성 근거와 확인 범위
+
+업무 노트의 「댄스챌린지 개발」과 「월드 메인페이지 개발」 항목을 바탕으로 작성했다. 당시 조사 내용과 현재 참고한 문법 설명은 구분했다. 단말 모델·iOS 버전·최종 수정 코드·성능 측정 캡처는 확인되지 않아 덧붙이지 않았다.

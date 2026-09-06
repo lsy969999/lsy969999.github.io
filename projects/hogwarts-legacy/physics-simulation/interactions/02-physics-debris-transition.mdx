@@ -1,0 +1,386 @@
+---
+id: hogwarts-physics-debris-transition
+project: hogwarts-legacy
+title: Runtime Object를 PhysX Debris로 전환하는 수명주기
+description: Guardian Weapon과 Prop Barrel의 기존 자세·운동을 보존하면서 독립적인 Dynamic RigidBody 파편으로 전환한 과정
+slug: /hogwarts-legacy/physics-debris-transition
+order: 140
+featured: true
+tags:
+  - PhysX
+  - RigidBody
+  - Convex Collider
+  - Debris
+---
+
+# Runtime Object를 PhysX Debris로 전환하는 수명주기
+
+## 배경과 목표 {/* #목표 */}
+
+게임 중 이미 사용 중인 객체를 파편으로 바꿀 때는 파괴 순간의 자세와 운동을 보존하면서, Transform과 렌더링의 소유권을 Physics로 안전하게 넘겨야 한다. 이를 서로 다른 조건을 가진 두 객체에 적용했다.
+
+## 사례 1: Guardian Weapon
+
+Tomb Guardian이 살아 있는 동안 Axe, Mace, Sword는 오른손 Bone Socket을 따라 움직여야 한다. 몬스터가 파괴되는 순간에는 같은 무기가 현재 위치에서 분리되어 바닥으로 떨어지고, 잠시 남아 있다가 Dissolve되어야 했다.
+
+무기를 사망 시점에 새로 Clone하면 마지막 Animation Pose와 생성 Pose 사이에 오차가 생길 수 있다. 반대로 처음부터 Dynamic RigidBody로 동작시키면 Animation과 Physics가 같은 Transform의 소유권을 두고 충돌한다.
+
+그래서 무기 객체는 그대로 유지하면서 Transform을 결정하는 주체만 전환했다.
+
+```text
+Guardian 생존
+Bone Socket → Parent Matrix → Weapon Transform
+
+Guardian 파괴
+마지막 Socket World Pose 캡처
+        ↓
+Parent 연결 해제
+        ↓
+Dynamic RigidBody + Gravity 활성화
+        ↓
+PhysX Pose → Weapon Transform
+        ↓
+Dissolve 후 지연 파괴
+```
+
+## Physics Component를 미리 준비
+
+Weapon 초기화 시 Dynamic RigidBody와 무기 형상에 맞는 Convex Collider를 한 번 생성한다. 다만 장착 중에는 실제 Simulation에 참여하지 않는다.
+
+```cpp
+SetSimulationEnabled(false);
+SetQueryEnabled(false);
+SetGravityEnabled(false);
+SetLinearDamping(0.1f);
+SetAngularDamping(0.5f);
+SetMaxDepenetrationVelocity(3.f);
+PutToSleep();
+```
+
+사망 프레임에 Component를 새로 만들지 않으므로 Resource 조회와 PhysX Actor 생성 비용이 연출 시작 시점에 집중되지 않는다. 장착 중에는 Collider의 Simulation과 Query를 모두 꺼서 보이지 않는 무기 Shape가 캐릭터나 월드와 충돌하는 일도 막는다.
+
+RigidBody Type은 처음부터 `DYNAMIC`이지만 Gravity를 끄고 Sleep 상태로 유지한다. 전환 시 같은 Actor를 깨우기 때문에 Kinematic Actor를 다시 구성하거나 Component를 교체할 필요가 없다.
+
+## 무기별 Cooked Convex 선택
+
+렌더 Mesh와 충돌 형상을 분리하고, 무기 종류별로 미리 Cook한 Convex Geometry를 사용한다.
+
+| Weapon Resource | Convex Geometry |
+| --- | --- |
+| `Model_Resource_Axe` | `SM_Tomb_Axe.pxconvex` |
+| `Model_Resource_Mace` | `SM_Tomb_Mace.pxconvex` |
+| `Model_Resource_Sword` | `SM_Tomb_Sword.pxconvex` |
+
+`ResolveConvexPath()`가 Weapon Resource 이름을 물리 Resource 경로로 변환한다. 지원하지 않는 무기는 초기화 단계에서 실패하므로, 잘못된 무기가 Box 같은 임시 Collider로 조용히 동작하지 않는다.
+
+Convex Resource는 `GetOrCreateResourceByPath()`로 조회한다. 같은 형상을 쓰는 Guardian마다 Cooked 데이터를 다시 읽지 않고 Resource Manager가 공유한다.
+
+## 렌더 Scale과 Collider Scale 맞추기
+
+무기의 최종 크기에는 세 종류의 Scale이 관여한다.
+
+```text
+Collider Scale
+= Model PreTransform Scale
+× Weapon Placement Scale
+× Guardian Owner Scale
+```
+
+FBX 좌표계를 엔진 좌표계로 변환하는 Model PreTransform, 몬스터 Descriptor의 무기 Scale, Guardian 본체 Scale을 모두 곱해 Convex Collider에 반영했다. 각 축의 절댓값에 최소 `0.001`을 보장해 음수 Scale이나 0에 가까운 값이 PhysX Geometry를 무효화하지 않게 했다.
+
+이 계산이 빠지면 렌더링된 무기와 Debug Collider의 위치는 맞아 보여도 크기가 다르게 나타난다. 특히 몬스터 본체를 확대 배치했을 때 무기 Mesh만 커지고 물리 형상은 원래 크기로 남는 문제를 방지한다.
+
+## 마지막 Socket World Pose 확정
+
+전환 시 가장 중요한 값은 사망 Animation의 마지막 손 위치다. 평소 `LateUpdate()`에서 계산한 Matrix가 한 프레임 이전 값일 수 있으므로, `ActivateDebrisPhysics()`가 현재 Parent와 Bone Matrix를 다시 조회한다.
+
+```text
+Combined Bone Matrix
+        ×
+Guardian World Matrix
+        =
+Weapon Socket World Matrix
+```
+
+Bone Matrix의 Basis 세 축은 길이를 검사한 뒤 정규화한다. Skeletal Scale이 회전 Basis에 섞인 상태로 Parent Matrix를 구성하면 회전과 Scale 분해가 불안정해질 수 있기 때문이다. Parent Handle, Model Component, Bone Index와 Matrix 범위를 모두 검증하고 하나라도 유효하지 않으면 전환을 중단한다.
+
+확정한 Parent Matrix를 Weapon Transform에 적용한 뒤 `XMMatrixDecompose()`로 World Position, Quaternion, Scale을 분리한다. Quaternion은 다시 정규화해 PhysX Pose로 전달한다.
+
+## Transform 소유권 전환
+
+장착 상태와 Debris 상태는 `m_bDebrisPhysicsActivated`로 명확히 분리한다.
+
+### 장착 상태
+
+```cpp
+GetTransform().SetParentWorldMatrix(m_ParentMatrix);
+GetTransform().Update();
+```
+
+Animation이 갱신한 Socket Matrix를 Parent World로 사용한다. 기존 무기 투척 Animation도 이 경로에서 Parent Matrix를 이동시키며, Debris 전환 이후에는 더 이상 실행하지 않는다.
+
+### Debris 상태
+
+```cpp
+UpdatePhysicData();
+GetTransform().Update();
+```
+
+PhysX Actor의 최신 Pose를 Transform에 반영한다. 전환 순간에는 Parent World Matrix를 `nullopt`로 해제하고, 캡처한 World Position·Quaternion·Scale을 Transform의 독립 값으로 옮긴다.
+
+Parent를 끊기 전에 World Pose를 캡처하지 않으면 무기가 Local 좌표를 World 좌표로 해석해 원점 근처로 이동한다. 반대로 Parent를 유지한 채 PhysX World Pose를 적용하면 Guardian Transform이 한 번 더 곱해진다. **World Pose 보존 후 Parent 해제** 순서를 지키는 이유다.
+
+## 전환을 하나의 Transaction처럼 처리
+
+Physics 활성화에는 여러 상태 변경이 필요하다.
+
+1. RigidBody Pose 설정
+2. 선속도와 각속도 초기화
+3. Collider Simulation 활성화
+4. Scene Query 활성화
+5. Gravity 활성화
+6. RigidBody Wake Up
+
+하나라도 실패하면 Collider와 Gravity를 다시 끄고 Actor를 Sleep 상태로 되돌린다. 절반만 활성화된 무기가 장착 상태도 Debris 상태도 아닌 채 남지 않게 하기 위한 Rollback이다.
+
+현재 Weapon은 전환 순간의 속도를 상속하지 않고 선속도와 각속도를 0으로 초기화한다. 마지막 Socket의 자세는 유지하되, 이후 운동은 Gravity와 월드 충돌로 시작하는 결정적인 동작을 선택했다. 폭발 방향으로 비산하는 Guardian 본체 파편은 별도 객체가 초기 Linear·Angular Velocity를 계산한다.
+
+## 부모보다 먼저 무기를 활성화
+
+Guardian 본체는 `DEBRIS` Behavior Flag를 감지하면 Weapon Handle로 무기를 조회해 `ActivateDebrisPhysics()`를 직접 호출한다.
+
+```text
+Guardian Update
+├─ Weapon Debris Physics 활성화
+├─ Body Debris Physics 활성화
+├─ DEBRIS Flag 제거
+└─ Guardian PendingDestroy 예약
+```
+
+무기 스스로 Parent의 Flag를 뒤늦게 읽어 전환하도록 두면 Update 순서에 따라 Parent가 Flag를 먼저 지우거나 파괴될 수 있다. 소유자인 Guardian이 자신의 파괴를 예약하기 전에 무기에 전환 명령을 전달해 순서 의존성을 제거했다.
+
+Parent는 Raw Pointer가 아니라 Handle로 조회한다. 이미 제거됐거나 Slot Generation이 달라졌다면 활성화를 실패로 처리하고 무효 객체에 접근하지 않는다.
+
+## Debris 충돌 정책
+
+Weapon은 `DEBRIS` Layer에 속하지만 최종 Simulation Mask는 다음 대상만 포함한다.
+
+- `WORLD_STATIC`
+- `WORLD_DYNAMIC`
+- `MOVING_PLATFORM`
+
+다른 Debris와 Player·Enemy Body는 제외한다. 여러 Body Fragment와 Weapon Convex가 같은 위치에서 동시에 활성화되면 Debris 간 겹침을 해소하는 Contact가 폭증하고, 큰 Depenetration으로 파편이 비정상적으로 튈 수 있기 때문이다.
+
+본체 파편의 폭발감은 Debris끼리 서로 밀어내게 하지 않고, 파편 중심과 폭발 원점을 이용해 각 객체의 초기 Linear·Angular Velocity를 직접 계산하는 방식으로 만들었다. 물리 Solver의 겹침 복구에 연출 결과를 맡기지 않아 수치 조절이 가능하고 재현 가능한 결과를 얻는다.
+
+Moving Platform을 Mask에 포함해 파편이 움직이는 발판을 통과하지 않게 했다. Query Mask도 같은 월드 Layer만 허용해 Raycast나 Sweep에서 Weapon Debris가 불필요한 Gameplay 판정에 섞이지 않도록 제한했다.
+
+## Physics 이후 Dissolve 수명주기
+
+초기 구현에서는 사망 Flag와 Dissolve Flag를 같은 시점에 처리하면서 물리 낙하가 보이기 전에 무기가 바로 사라질 수 있었다. Debris Physics 활성화 성공 시점을 수명주기의 시작으로 삼아 다음 상태를 함께 설정한다.
+
+```cpp
+m_bDebrisPhysicsActivated = true;
+m_bDead = true;
+m_fTick = 0.f;
+```
+
+그 뒤 `PriorityUpdate()`의 사망 경로가 Timer를 증가시키고 약 3초 동안 Dissolve Intensity를 올린다. 시간이 끝나면 즉시 삭제하지 않고 `SetPendingDestroy()`를 호출해 GameObject Manager의 FrameEnd 파괴 규칙을 따른다.
+
+`LateUpdate()`는 Debris가 활성화된 동안에도 PhysX Pose를 동기화하고 Render Group과 Shadow Group에 등록한다. 따라서 “Physics는 동작하지만 `m_bDead` 조건 때문에 렌더링되지 않는” 상태가 되지 않는다.
+
+## 실패 처리와 관찰 지점
+
+`ActivateDebrisPhysics()`는 이미 활성화됐다면 성공을 반환해 같은 Flag가 중복 처리돼도 상태를 다시 초기화하지 않는다. 필수 Component, Parent Handle, Bone Matrix, Matrix Decompose와 각 PhysX 설정 결과는 모두 검사한다.
+
+호출자인 Guardian은 실패 시 Debug Log를 남기고 Parent 파괴 흐름을 계속한다. 연출용 무기 하나의 실패가 몬스터 전체 사망 상태를 멈추지는 않되, 개발 중에는 어떤 전환이 실패했는지 확인할 수 있다.
+
+확인해야 할 핵심 Debug 상태는 다음과 같다.
+
+- 렌더 Mesh와 Convex Collider의 Scale 일치
+- 활성화 직전 Socket Pose와 첫 PhysX Pose 일치
+- Parent Matrix가 전환 후 해제됐는지 여부
+- Simulation, Query, Gravity, Sleep 상태
+- World Static·Dynamic·Moving Platform 접촉
+- Physics 낙하와 Dissolve가 동시에 렌더링되는 시간
+
+## 사례 2: Prop Barrel
+
+Prop Barrel은 이미 Dynamic RigidBody로 월드에 배치되어 있다. 충격량이 임계값을 넘거나 Ancient Throw 투사체로 사용되어 충돌하면, 완성된 통 하나를 12개의 독립적인 Convex 파편으로 교체한다.
+
+```text
+Intact Barrel
+├─ Dynamic RigidBody
+├─ Intact Convex Collider
+└─ CREATED State
+        │ 충돌 Impulse 또는 Ancient Throw Impact
+        ▼
+12개 Debris 생성 Transaction
+        │ 모두 성공
+        ├─ 원본 Collider 비활성화
+        ├─ 한 프레임 동안 원본 렌더 유지
+        └─ 다음 Update에서 원본 PendingDestroy
+                ▼
+Debris Physics → Delayed Dissolve → PendingDestroy
+```
+
+Guardian Weapon이 같은 객체 안에서 Transform의 주체만 바꾸는 사례라면, Prop Barrel은 **원본 객체를 여러 파편 객체로 교체하는 사례**다.
+
+## 충돌의 세기와 파괴 요청 분리
+
+원본 Barrel Collider는 Contact Point와 Impulse Notification을 요청한다. `OnCollisionEnter()`는 모든 Contact의 Impulse Vector 길이를 합산해 충격 세기를 계산한다.
+
+```cpp
+float totalImpulse = 0.f;
+for (uint32_t i = 0; i < info.iContactCount; ++i)
+{
+    totalImpulse += Length(info.Contacts[i].vImpulse);
+}
+```
+
+충격량이 파괴 임계값을 넘더라도 Callback 안에서 바로 12개 객체를 생성하지 않는다. `m_bDestroyRequested`만 설정하고 일반 `Update()`에서 `DestroyBarrel()`을 실행한다. PhysX Simulation Callback과 GameObject Container 변경 시점을 분리하기 위한 구조다.
+
+생성 직후에는 배치 과정의 겹침 해소나 첫 낙하 충격만으로 바로 부서지지 않도록 Grace Time을 둔다. 충돌음은 Grace Time과 별도로 처리하고 짧은 Cooldown을 적용해 연속 바운스가 많은 상황에서 같은 소리가 겹치는 것을 막는다.
+
+## Ancient Throw의 Kinematic 제어와 Sweep
+
+Ancient Throw가 Barrel을 끌어오는 동안에는 기존 Dynamic 운동을 멈추고 Kinematic으로 전환한다.
+
+```text
+BeginAncientThrowControl
+├─ Linear·Angular Velocity 초기화
+├─ Kinematic 활성화
+├─ Simulation·Query Shape 비활성화
+└─ 이전 PhysX Sync Cache 무효화
+```
+
+발사 후에도 PhysX Contact에만 맡기지 않고 Fixed Tick마다 목표 중심과 회전을 계산한다. 모델 Pivot이 Barrel 바닥에 있기 때문에 Pivot을 직선 이동시키면 회전 중 시각적 중심이 원을 그린다. Local Bounds에서 구한 Visual Center Offset을 회전시킨 뒤 Pivot을 역보정해 Barrel의 중심이 발사 경로를 따라가게 했다.
+
+빠른 Kinematic 이동의 터널링은 현재 중심에서 목표 중심까지 Sphere Sweep을 수행해 방지한다.
+
+```text
+Sweep Query Mask
+├─ World Static
+├─ Moving Platform
+├─ Enemy Body / Hurtbox
+└─ World Dynamic
+```
+
+자신의 Handle은 Ignore 대상으로 전달하고 Trigger는 제외한다. 충돌하면 Sweep Hit Distance까지만 Pose를 옮긴 뒤 Impact Position과 Normal로 Effect 방향을 구성하고, 맞은 대상이 Skill Target이면 파괴 타입 공격을 전달한다.
+
+수동으로 설정한 Pose가 `LateUpdate()`에서 이전 PhysX Sync 결과로 되돌아가지 않도록 제어 시작, Pose 변경, 발사 시점마다 Sync Cache를 명시적으로 무효화한다.
+
+## 파괴 직전 최신 Physics Pose 보존
+
+파괴 요청은 `Update()`에서 처리되므로 해당 프레임의 `LateUpdate()`가 아직 실행되지 않았을 수 있다. `DestroyBarrel()`은 먼저 `UpdatePhysicData()`를 호출해 RigidBody의 최신 자세를 Transform에 반영한다.
+
+이후 다음 정보를 파편 Descriptor에 전달한다.
+
+- 원본 Barrel의 World Position과 Scale
+- 원본 RigidBody의 Linear·Angular Velocity
+- 일반 충돌인지 Ancient Throw Impact인지 여부
+- Ancient Throw의 실제 Impact Position
+- 파편별 Static Model Resource와 Cooked Convex 경로
+
+Blender에서 제작한 파편 Resource의 축 차이는 원본 Quaternion 앞에 X축 `-90°` 보정 Quaternion을 곱해 맞춘다. 원본의 현재 World Rotation도 이어지므로, 회전 중 파괴된 통이 기본 방향으로 되돌아가지 않는다.
+
+## 12개 파편의 속도 구성
+
+일반 물리 충돌로 파괴된 경우에는 원본 RigidBody의 운동을 보존하면서 각 파편에 방사형·상향 속도를 더한다.
+
+```text
+Debris Linear Velocity
+= Barrel Linear Velocity
++ Radial Direction × Outward Speed
++ Up Direction × Upward Speed
+```
+
+Angular Velocity도 원본 회전에 파편 Index 기반 Spin을 더한다. 12개 파편을 원 둘레의 각도로 분배하고 Index에 따라 속도와 회전 부호를 조금씩 바꿔 완전히 같은 방향으로 움직이지 않게 한다.
+
+Ancient Throw 충돌에서는 실제 Impact Point에서 Barrel 둘레의 가상 Fragment Point를 향하는 3차원 방사 방향을 만든다. 이 경우 발사 속도는 1%만 상속하고 Impact 방사 속도를 주성분으로 사용한다. 고속 투사체의 속도를 그대로 12개 파편에 더해 화면 밖으로 사라지는 현상을 줄이면서 충돌점을 중심으로 터지는 형태를 유지한다.
+
+방향 길이가 0에 가까운 예외에는 파편 Index로 만든 원형 방향과 약간의 Y 성분을 사용한다. Normalize할 수 없는 Vector가 PhysX Velocity로 전달되지 않게 한다.
+
+## 파편 생성도 전부 성공해야 Commit
+
+12개 파편 생성 중 하나라도 실패하면 이미 생성된 파편 Handle을 순회해 모두 `PendingDestroy`로 되돌리고 `DestroyBarrel()`은 실패를 반환한다.
+
+```text
+Spawn Debris 1 ... 12
+        │
+        ├─ 전부 성공 → DESTROYED Commit
+        │
+        └─ 하나 실패 → 생성된 Debris Rollback
+                         원본 Barrel 유지
+```
+
+원본의 State와 Collider는 모든 파편이 성공한 뒤에만 변경한다. 부분 생성된 파편과 멀쩡한 원본이 동시에 남는 중간 상태를 외부에 공개하지 않는다. Guardian Weapon의 Physics 활성화 Rollback과 같은 원칙을 여러 객체 생성에 확장한 것이다.
+
+## 원본과 파편 사이의 한 프레임 Handoff
+
+새 GameObject는 생성된 프레임에 바로 Render List에 들어가지 않을 수 있다. 파편 생성과 동시에 원본을 제거하면 한 프레임 동안 아무것도 렌더링되지 않아 파괴 순간이 깜빡인다.
+
+성공 시 원본 Barrel은 다음 순서를 따른다.
+
+1. State를 `DESTROYED`로 변경한다.
+2. 원본 Collider의 Simulation과 Query를 즉시 끈다.
+3. 현재 프레임에는 원본 Mesh를 계속 렌더링한다.
+4. 다음 `Update()`에서 원본을 `PendingDestroy`로 전환한다.
+5. 그 프레임부터 파편이 각자 Render List에 등록된다.
+
+원본 Collider는 먼저 꺼서 새 파편 Collider 12개와 겹치며 강한 Depenetration을 만드는 상황을 막는다. 렌더 수명과 물리 수명을 같은 순간에 끊지 않고 각 시스템이 안전하게 인계받는 시점에 맞췄다.
+
+## Instancing에서 Dissolve 렌더로 전환
+
+각 `CPropBarrelDebris`는 Dynamic RigidBody와 전용 Cooked Convex를 갖고 Gravity, Damping, 초기 속도를 적용한 뒤 즉시 Wake Up한다.
+
+파편이 정상 상태이고 Instancing이 활성화돼 있으면 Dynamic Instance Batch에 등록한다. Dissolve가 시작되면 개별 Material Parameter가 필요하므로 일반 Non-blend Render 경로로 전환한다.
+
+```text
+0.0s ───────── 3.0s ───────── 4.5s
+      Physics        Dissolve
+      Instancing     Individual Render
+      Shadow On      Shadow Off
+                                  PendingDestroy
+```
+
+기본값은 3초 대기 후 1.5초 동안 Dissolve Intensity를 0에서 1까지 증가시키는 것이다. Dissolve 중에는 Shadow Group 등록도 중단해 사라진 파편의 그림자만 남지 않게 한다. 완료 시 GameObject Manager의 FrameEnd 지연 파괴 경로를 사용한다.
+
+## 소리의 수명도 파괴 방식에 맞추기
+
+끌어오기와 비행처럼 객체를 따라다니거나 중단돼야 하는 Sound는 `CComSound` Slot으로 관리한다. 파괴 전에 Hold와 Flight Slot을 명시적으로 중지한다.
+
+반대로 Impact Main·Tail과 나무 파괴음은 원본 Barrel이 곧 제거되어도 끝까지 들려야 한다. 이 Sound는 객체 Component가 아니라 Sound Manager의 독립적인 3D One-shot으로 재생한다. 객체와 함께 끝나야 하는 소리와 객체보다 오래 살아야 하는 소리를 소유 위치로 구분했다.
+
+## 두 전환 방식의 공통 규칙
+
+| 항목 | Guardian Weapon | Prop Barrel |
+| --- | --- | --- |
+| 전환 전 소유권 | Bone Socket Parent | Dynamic RigidBody 또는 Kinematic Gameplay Control |
+| 전환 결과 | 같은 객체가 Physics 소유로 변경 | 원본 1개를 파편 12개로 교체 |
+| 보존 상태 | 마지막 Socket World Pose | 최신 Physics Pose와 운동량 |
+| 실패 처리 | Component 상태 Rollback | 생성된 파편 전체 PendingDestroy |
+| 렌더 인계 | 같은 Weapon Mesh 유지 | 원본을 한 프레임 유지한 뒤 파편으로 교체 |
+| 종료 | 약 3초 후 Dissolve·파괴 | 파편별 Delay 후 Dissolve·파괴 |
+
+공통 핵심은 전환 경계에서 최신 World State를 캡처하고, 새 물리 상태가 완전히 준비된 뒤 기존 소유 관계를 끊는 것이다.
+
+## 한계와 개선 방향 {/* #트레이드오프 */}
+
+Physics Component를 미리 생성하므로 전투 중 전환 비용은 줄지만, 살아 있는 모든 Guardian Weapon이 비활성 PhysX Actor와 Convex Shape를 보유한다. 몬스터 수가 크게 늘어난다면 공용 Pool이나 사망 직전 준비 방식과 메모리·생성 비용을 비교할 필요가 있다.
+
+Weapon 종류와 Convex 경로의 매핑은 현재 코드에 고정되어 있다. 종류가 많아지면 Weapon Descriptor나 Resource Metadata로 옮겨 콘텐츠 추가 시 C++ 분기를 수정하지 않는 구조가 적합하다.
+
+현재 전환은 Socket의 순간 속도를 계산하지 않는다. Animation의 움직임을 자연스럽게 이어야 한다면 이전·현재 Socket Pose 차이에서 Linear·Angular Velocity를 계산해 넘길 수 있지만, 낮은 Frame Rate에서 속도가 튀지 않도록 Clamp와 Fixed Tick 기준이 함께 필요하다.
+
+Prop Barrel은 파괴 시 12개의 GameObject와 PhysX Actor를 한꺼번에 생성한다. 현재는 생성 실패 Rollback으로 정합성을 지키지만 순간 생성 비용 자체는 남는다. 반복 배치가 많아지면 파편 Set을 미리 준비하거나 Object Pool과 연결하는 방식이 적합하다.
+
+파편 Resource와 Convex 이름은 Index 규칙으로 조합한다. 모델·Collider 파일이 하나라도 누락되면 Transaction 전체가 실패하므로, Level Load 단계에서 12개 쌍의 존재 여부를 검증하는 Asset Validation을 추가할 수 있다.
+
+현재 구조는 완성된 원본을 한 번에 12개 파편으로 교체한다. 파편 간 Bond Health나 부분 파괴를 계산하는 Destruction Graph는 포함하지 않는다. 단계적 파괴가 필요하면 같은 수명주기 위에 Blast Asset과 Chunk 활성 상태를 연결해야 한다.
+
+## 구현 결과 {/* #결과 */}
+
+Guardian Weapon은 하나의 객체 안에서 Animation에서 PhysX로 Transform 소유권을 넘겼고, Prop Barrel은 원본 객체를 12개의 독립적인 PhysX 파편으로 교체했다. 두 사례 모두 최신 World State 캡처, 새 상태의 전체 준비, 실패 Rollback, 기존 관계 해제 순서를 공유한다.
+
+Debris 간 Solver 반발 대신 제어 가능한 초기 속도와 Collision Mask를 사용했으며, 원본과 파편의 렌더 인계를 한 프레임 분리해 깜빡임과 Collider 중첩을 함께 방지했다. 마지막에는 Dissolve와 FrameEnd 지연 파괴까지 연결해 생성부터 제거까지 하나의 수명주기로 구성했다.

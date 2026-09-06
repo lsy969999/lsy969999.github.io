@@ -1,0 +1,251 @@
+---
+id: hogwarts-physx-ragdoll
+project: hogwarts-legacy
+title: PhysX D6 Joint 기반 랙돌 시스템
+description: 애니메이션 자세와 다중 RigidBody를 양방향으로 동기화하고, CCT·Hurtbox·카메라 생명주기까지 연결한 데이터 기반 랙돌
+slug: /hogwarts-legacy/physx-ragdoll
+order: 120
+featured: true
+tags:
+  - PhysX
+  - Ragdoll
+  - Skeletal Animation
+  - D6 Joint
+---
+
+# PhysX D6 Joint 기반 랙돌 시스템
+
+## 배경과 목표 {/* #문제 */}
+
+캐릭터가 사망했을 때 단순히 Physics Actor를 켜는 것만으로 자연스러운 랙돌이 되지는 않는다. 각 신체 RigidBody가 활성화 직전 애니메이션과 정확히 같은 자세에 있어야 하고, 이후에는 반대로 물리 결과가 Skeleton을 움직여야 한다.
+
+한 캐릭터 안에는 Character Controller, Character Motor, Root Motion, Hurtbox도 함께 존재한다. 랙돌과 이 기능들이 동시에 활성화되면 CCT Capsule과 신체 RigidBody가 서로를 밀거나, 애니메이션과 물리가 같은 Bone을 서로 다른 위치로 쓰는 문제가 생긴다. Player Transform이 더 이상 실제 몸의 위치를 대표하지 않으므로 카메라 추적 기준도 바뀌어야 한다.
+
+이를 세 계층으로 분리했다.
+
+```text
+Ragdoll Editor / JSON
+   ↓ Body·Shape·D6 Joint 정의
+CComPxRagdoll
+   ├─ PhysX Actor·Shape·Joint 수명
+   └─ Animation Pose ↔ Physics Pose 변환
+   ↓
+Player / NPC Ragdoll Controller
+   ├─ 입력·AI·CCT·Hurtbox 전환
+   ├─ 초기 관성 전달
+   └─ 카메라·게임플레이 연결
+```
+
+엔진 Component는 어떤 캐릭터인지 모르는 범용 물리 기능만 제공한다. 플레이어와 NPC의 게임플레이 정책은 Client Controller가 담당한다.
+
+## 데이터로 분리한 신체 구조
+
+`PX_RAGDOLL_DESC`는 Skeleton 경로와 Body·Joint 배열을 JSON으로 직렬화한다. 현재 Humanoid Preset은 16개 Body와 15개 Joint로 하나의 연결된 트리를 구성한다.
+
+| 데이터 | 주요 내용 |
+| --- | --- |
+| Body | 이름, 연결 Bone, Bone-to-Actor Pose, 질량, 감쇠, 중력 |
+| Shape | Box·Sphere·Capsule, Actor Local Pose, 크기, Layer·Mask |
+| D6 Joint | Parent·Child Body, 양쪽 Local Joint Pose, Twist·Swing 제한 |
+
+Body와 Bone을 1:1로 고정하지 않고 이름으로 연결한다. 캐릭터 모델을 Binding할 때 Skeleton 전체를 순회해 Body별 Bone Index, Bone Parent Index, Bone별 Body Index를 캐시한다. 존재하지 않는 Bone, 중복 Body 연결, 잘못된 부모 순서는 Runtime 진입 전에 실패시킨다.
+
+Shape도 일반 Collider와 같은 Simulation Layer와 Query Mask를 가진다. PhysX Registry에는 Actor Type을 `RAGDOLL_BONE`, Shape Type을 `RAGDOLL`로 등록하고 Body Index를 SubIndex로 저장한다. 충돌 Callback이나 Scene Query는 같은 GameObject에 속한 신체 중 어느 Body가 맞았는지 식별할 수 있다.
+
+## Skeleton Bind Pose 기반 저작 도구
+
+Bone Offset과 Joint Frame을 수작업으로 계산하는 것은 오류가 크다. ImGui 기반 Ragdoll Editor에서 Model Resource를 선택하면 Skeleton Bind Pose를 읽고 다음 작업을 지원한다.
+
+- Skeleton·Body·Joint Tree 탐색
+- 선택 Bone에 Body 추가
+- Box·Sphere·Capsule Shape 편집
+- Translate·Rotate·Scale Gizmo
+- Body 질량·감쇠·중력 설정
+- Shape별 Layer, Simulation Mask, Query Mask 설정
+- Joint의 Twist·Swing Motion과 제한각 설정
+- Model, Skeleton, Shape, Joint Frame 동시 Preview
+- 초기 Linear·Angular Velocity를 넣은 실제 Physics Test
+- JSON Load·Save와 저장 전 Validation
+
+`Auto Generate Humanoid`는 Bone 사이 Bind Pose 거리를 이용해 팔·다리 Capsule을 맞추고, 골반·가슴·발에는 Box를 배치한다. 이어서 인접 Body 사이에 D6 Joint를 생성한다. 현재 Preset은 Hips, Spine, Head, 양팔·손, 양다리·발을 포함한다.
+
+```text
+Skeleton Bind Pose
+   ├─ Bone → Child 방향과 길이 계산
+   ├─ Capsule 중심·회전·Half Height 산출
+   ├─ Pelvis·Chest·Foot Box 범위 산출
+   └─ Parent·Child Local Joint Frame 산출
+```
+
+자동 생성은 완성 결과가 아니라 캐릭터 비율에 맞는 시작점이다. Editor에서 각 Shape와 Joint를 조정한 뒤 Physics Test로 실제 낙하와 충돌을 확인한다.
+
+### 무릎과 팔꿈치를 해부학적 Hinge로 제한
+
+초기에는 팔꿈치와 무릎도 일반적인 Twist·Swing Cone을 사용했다. 자유도가 너무 넓으면 허벅지가 앞쪽으로 접히거나 팔꿈치가 반대 방향으로 꺾이는 비정상적인 자세가 나왔다.
+
+`ConfigureAnatomicalHinge()`는 Child Bone에서 End Bone으로 향하는 축과 캐릭터 기준 굽힘 방향을 사용해 Joint Frame을 다시 구성한다. 회전 자유도는 Twist 한 축만 Limited로 두고 두 Swing 축은 Locked로 만든다.
+
+```text
+일반 Cone Joint
+Twist + Swing Y + Swing Z
+          ↓
+팔꿈치·무릎 Hinge
+Twist Limited, Swing Y/Z Locked
+```
+
+좌우 팔꿈치는 약간의 역방향 여유와 굽힘 범위를 갖고, 무릎은 뒤쪽으로만 크게 접히도록 서로 다른 Lower·Upper Limit를 사용한다. 단순히 각도를 줄이는 것이 아니라 모델의 실제 Bone 방향으로 회전축을 정렬한 것이 핵심이다.
+
+## Runtime Body와 D6 Joint 생성
+
+`CComPxRagdoll`은 JSON을 검증한 뒤 Body마다 `PxRigidDynamic`을 생성한다. 각 Actor에는 하나 이상의 Shape를 붙이고 질량과 관성, Linear·Angular Damping, 중력, 최대 Depenetration Velocity를 적용한다.
+
+생성 직후 Body는 모두 Kinematic이다. 평상시에는 애니메이션을 따라가되 충돌 때문에 캐릭터를 움직이지 않도록 하기 위해서다.
+
+관절 체인의 안정성을 위해 기본 RigidBody보다 높은 Solver Iteration을 사용하고, 강한 충돌이나 Limit 보정에서 과도한 회전이 생기지 않도록 최대 Angular Velocity를 제한한다.
+
+D6 Joint는 세 Linear 축을 모두 Locked로 두고 Angular 축만 데이터에 따라 `LOCKED`, `LIMITED`, `FREE`로 설정한다. 추가로 다음 값을 데이터에서 제어한다.
+
+- Twist Lower·Upper Limit
+- Swing Y·Z Cone Limit
+- Limit Stiffness·Damping·Restitution
+- Break Force·Torque
+- Parent·Child의 Inverse Mass·Inertia Scale
+- 연결된 Body 사이 Collision 허용 여부
+- Joint Enable과 Debug Visualization
+
+Joint의 Parent와 Child는 Body 이름으로 찾는다. 존재하지 않는 참조, 중복 Joint 이름, 한 Child를 두 Parent가 소유하는 구조, Body 수와 맞지 않는 연결 트리는 Validation에서 거부한다.
+
+## Animation Pose에서 Physics Pose로 전환
+
+평상시에는 현재 Combined Bone Matrix를 PhysX Actor의 World Pose로 변환해 캐시한다.
+
+```text
+ActorWorld
+= BoneToActor
+× CombinedBone
+× ObjectWorld
+```
+
+캐시된 Pose는 Kinematic Target으로 전달된다. 따라서 비활성 랙돌도 화면에 보이는 캐릭터와 같은 위치에서 대기한다.
+
+사망 요청이 발생했다고 즉시 Dynamic으로 전환하지는 않는다. `RequestActivation()`은 요청과 초기 속도만 저장한다. Character Animation과 World Transform이 모두 갱신된 `UpdatePoseBridge()`에서 최신 자세를 캐시한 뒤 실제 활성화를 수행한다.
+
+```text
+사망 Event / GUI 요청
+   ↓ RequestActivation
+Pending 상태
+   ↓ Animation Update 완료
+최신 Bone Pose 캐시
+   ↓
+모든 Actor를 같은 Pose로 Snap
+   ↓
+Kinematic 해제 + 초기 속도 적용 + Wake Up
+```
+
+이 순서가 없으면 이전 Frame의 T-Pose나 걷기 자세에서 랙돌이 시작되며 시각적으로 순간이동한다. 전환 직전에 모든 Body를 한 번 더 같은 Cached Pose로 맞추고 나서 Dynamic으로 변경한다.
+
+Character Motor의 현재 Velocity는 랙돌의 초기 Linear Velocity로 승계한다. 다만 대시나 낙하 속도를 그대로 모든 Body에 넣으면 시체가 과도하게 튀므로 수평과 수직 성분을 현실적인 범위로 Clamp한다. 외부 충격에 의한 별도 Angular Velocity도 API로 전달할 수 있다.
+
+## Physics Pose를 Skeleton에 되돌리기
+
+랙돌이 활성화되면 데이터 흐름이 반대로 바뀐다. 각 PhysX Actor의 World Pose를 Bone Model Space로 변환한다.
+
+```text
+PhysicsBoneModel
+= inverse(BoneToActor)
+× ActorWorld
+× inverse(ObjectWorld)
+```
+
+PhysX Pose에는 Scale이 없으므로 그대로 Bone Matrix를 교체하면 모델의 Pre-Transform Scale이 사라질 수 있다. 기존 Animation Bone Matrix에서 Scale을 분해해 보존하고, Physics Rotation과 Translation만 결합한다.
+
+모든 Skeleton Bone에 PhysX Body가 있는 것은 아니다. Body가 매핑된 Bone은 Physics Pose로 교체하고, 매핑되지 않은 자식 Bone은 기존 Local Transform을 새 Parent Pose에 다시 곱한다. 손가락·장식 Bone처럼 물리 Body가 없는 계층도 부모 신체를 자연스럽게 따라간다.
+
+PhysX Manager의 일반 Active Actor 동기화는 `RIGID_BODY` Actor만 GameObject Transform에 반영한다. `RAGDOLL_BONE`은 제외하고 `CComPxRagdoll`이 Skeleton에 직접 기록한다. 여러 신체 Actor가 하나의 GameObject Transform을 번갈아 덮어쓰는 문제를 구조적으로 막았다.
+
+## CCT와 Hurtbox를 동시에 끄는 이유
+
+랙돌 전환 시 물리 신체만 켜고 CCT를 유지하면 두 물리 표현이 동시에 캐릭터를 차지한다. CCT Capsule이 바닥과 랙돌 사이에 끼어 몸을 들어 올리거나, Hurtbox가 자기 신체와 충돌할 수 있다.
+
+Player Controller는 활성화 직전에 기존 게임플레이 상태를 캐시하고 다음 기능을 중단한다.
+
+- 이동 입력, Sprint·Walk·Dash 요청
+- Character Move Intent와 Motor Velocity
+- Root Motion Translation·Rotation
+- CCT의 Layer·Simulation Mask·Query Mask
+- Hurtbox의 Simulation·Query 참여
+
+단순 Boolean 하나가 아니라 기존 Filter와 상태를 저장한다. `Reset()` 시 CCT를 현재 Player Transform 위치에 먼저 배치하고 Filter와 Hurtbox Flag, Root Motion 설정을 복원한다. Pooling이나 다른 상태가 미리 바꿔 둔 값을 기본값으로 덮지 않는다.
+
+Player의 큰 클래스에 전환 로직을 직접 넣지 않고 `CPlayerRagdollController`로 분리했다. Controller는 `CEngineBase`를 상속하고 Player를 참조하지만, 실제 `CComPxRagdoll` 소유권은 Player의 Component Container에 남긴다. 범용 Component의 수명 규칙을 유지하면서 Client 전용 상태에 접근하기 위해 Friend 범위를 제한적으로 사용했다.
+
+각 Frame Loop의 Hook은 역할이 다르다.
+
+| Hook | 역할 |
+| --- | --- |
+| `PrePriorityUpdate` | 입력과 State Machine이 새로운 이동 명령을 만들기 전에 차단 |
+| `PreFixedUpdate` | CCT·Motor 물리 갱신을 건너뛰고 대기 Body를 최신 Pose에 유지 |
+| `PostFixedUpdate` | 일반 이동 후 Kinematic Body를 갱신 |
+| `UpdatePoseBridge` | 비활성 시 Animation→Physics, 활성 시 Physics→Skeleton 전환 |
+
+## Player와 NPC 정책 분리
+
+플레이어는 초기화할 때 Ragdoll Component를 준비한다. 사망 순간의 응답을 우선하고 GUI에서 즉시 테스트할 수 있기 때문이다.
+
+월드 NPC는 수가 많아 16개 Body와 15개 Joint를 모든 객체에 미리 생성하면 비용이 크다. `CNpcRagdollController`는 객체 생성 시 Controller만 만들고, 실제로 첫 랙돌이 요청될 때 JSON Load, Component 생성, Skeleton Binding을 한 번 수행한다.
+
+```text
+Player: Spawn 시 Runtime Ragdoll 준비
+NPC:    첫 사망 요청 시 Lazy Initialization
+```
+
+두 Controller는 같은 `CComPxRagdoll` API와 Pose Bridge를 사용하지만, 플레이어 입력 상태와 NPC AI·Facing Intent의 차이는 각 Controller 안에 남긴다. 엔진 Component에 게임별 분기를 추가하지 않고 재사용 범위를 확보했다.
+
+## 랙돌을 따라가는 카메라
+
+랙돌 중 Player GameObject Transform은 사망 직전 위치에 머물 수 있다. 기존 Third Person Camera가 이 좌표를 계속 추적하면 몸이 굴러가도 카메라는 빈 공간을 바라본다.
+
+Player Controller는 대표 Body의 World Matrix에서 위치를 꺼내는 `TryGetFollowPosition()`을 제공한다. 카메라는 랙돌이 활성화된 동안 이 위치를 Target Position으로 사용하고, 기존 Follow Pivot 보간과 Offset 계산은 그대로 유지한다.
+
+현재 데이터에서는 첫 번째 Body가 Hips라는 규칙을 사용한다. 동작은 단순하지만 배열 순서에 의미가 숨어 있으므로, 장기적으로는 Ragdoll JSON에 Root 또는 Camera Follow Body를 명시하는 편이 안전하다.
+
+## Reset과 부활의 현재 범위
+
+`ResetToKinematicPose()`는 다음 순서로 물리 상태를 종료한다.
+
+1. D6 Joint Constraint를 잠시 비활성화한다.
+2. 모든 Body의 Linear·Angular Velocity, Force, Torque를 제거한다.
+3. Body를 Kinematic으로 전환한다.
+4. Cached Animation Pose로 Actor를 이동한다.
+5. 원래 Enable 상태인 Joint만 다시 활성화한다.
+6. CCT·Hurtbox·Root Motion과 입력 상태를 복원한다.
+
+이 API로 같은 객체를 다시 게임플레이 상태로 돌릴 수 있지만, 현재 구현은 물리 Pose에서 Get-up Animation으로 자연스럽게 Blend하는 완전한 부활 연출은 아니다. 사망 위치와 바닥 방향에 맞춰 Character Root를 옮기고, 앞·뒤로 누운 상태에 맞는 Get-up Clip을 선택하며, 일정 시간 Physical Animation Blend를 수행하는 단계가 추가로 필요하다.
+
+## 디버깅과 안정성
+
+Runtime Component와 Editor Preview는 같은 Pose 변환 함수를 사용한다. Editor의 Physics Test는 임시 Owner와 실제 `CComPxRagdoll`을 생성하고, 결과를 Preview Model의 Combined Bone Matrix에 기록한다. 저장하기 전에 실제 낙하·충돌·관절 제한을 확인할 수 있다.
+
+Debug Draw는 다음 정보를 서로 다른 색으로 표시한다.
+
+- Body의 Box·Sphere·Capsule Shape
+- Actor 중심점
+- Parent·Child Joint Anchor
+- Body 중심과 Joint 사이 연결선
+- Twist 축과 Swing Cone
+
+Runtime 생성 전에는 버전, Quaternion, Shape 크기, 질량, Joint 각도, Break 값, Mass Scale 같은 수치의 유효성을 검사한다. 생성 도중 하나라도 실패하면 만들어진 Joint와 Body를 역순으로 정리한다. Joint `userData`가 Runtime Vector 원소를 가리키므로 생성 전에 Capacity를 확보해 재할당으로 Pointer가 무효화되지 않게 했다.
+
+현재 구조의 한계는 다음과 같다.
+
+- 활성화 시 같은 초기 속도를 모든 Body에 적용하며 충돌 지점별 Impulse 분배 API는 아직 없다.
+- Player는 Ragdoll Runtime을 미리 생성하므로 항상 Body·Joint 비용을 가진다.
+- Hips Follow Body가 배열 Index 0으로 암묵적으로 정해져 있다.
+- Reset은 상태 복원 API이며 Get-up Animation과 Pose Blending은 후속 작업이다.
+- 망토 Collision Rig를 랙돌 Bone 결과와 같은 물리 Step 안에서 재정렬하는 전용 연동은 아직 구현 범위가 아니다.
+
+## 구현 결과 {/* #결과 */}
+
+Animation과 Physics 중 하나가 Skeleton을 일방적으로 소유하는 대신, 상태에 따라 데이터 방향이 바뀌는 Pose Bridge를 만들었다. 전환 요청을 최신 Animation Pose가 확보될 때까지 지연해 순간이동을 막고, PhysX 결과를 Bone 계층에 되돌리면서 원래 Scale과 비매핑 자식 Bone을 보존했다.
+
+또한 CCT·Hurtbox·Root Motion·카메라까지 하나의 전환 생명주기로 묶어 랙돌을 독립된 데모가 아니라 실제 플레이어 사망과 NPC 상태에 사용할 수 있는 기능으로 연결했다. JSON과 Editor를 통해 Body Shape와 관절 제한을 코드 수정 없이 조정하고, Humanoid 자동 생성과 실제 Physics Preview로 캐릭터별 튜닝 비용도 줄였다.

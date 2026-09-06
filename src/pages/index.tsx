@@ -18,11 +18,18 @@ export default function Home(): React.JSX.Element {
           <p className={styles.description}>
             포트폴리오를 새로운 구조로 구성하고 있습니다.
           </p>
-          <Link
-            className="button button--primary button--lg"
-            href="https://github.com/limits1214">
-            GitHub
-          </Link>
+          <div className={styles.actions}>
+            <Link
+              className="button button--primary button--lg"
+              to="/projects">
+              Projects
+            </Link>
+            <Link
+              className="button button--secondary button--lg"
+              href="https://github.com/limits1214">
+              GitHub
+            </Link>
+          </div>
         </section>
       </main>
     </Layout>

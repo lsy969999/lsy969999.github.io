@@ -1,0 +1,101 @@
+---
+id: hogwarts-string-id-magic-enum
+project: hogwarts-legacy
+title: StringID 해시와 magic_enum
+description: 문자열 기반 엔진 API의 사용성을 유지하면서 비교 비용과 Enum 변환 코드를 줄인 과정
+slug: /hogwarts-legacy/string-id-magic-enum
+order: 30
+featured: true
+tags:
+  - C++20
+  - Hash
+  - magic_enum
+---
+
+# StringID 해시와 magic_enum
+
+## 배경과 목표 {/* #문제 */}
+
+프로토타입, 컴포넌트, 리소스, 사운드, 레이어를 문자열 태그로 식별하면 호출부는 읽기 쉽다. 반면 런타임 비교와 `unordered_map` 조회에 문자열 전체가 관여하고, Enum을 로그·GUI·직렬화 문자열로 바꾸기 위한 `switch`가 반복된다.
+
+엔진 API의 가독성은 유지하면서 내부 식별자는 고정 크기로 만들고, Enum과 문자열 사이의 반복 변환 코드를 없애는 방향으로 정리했다.
+
+## 64-bit FNV-1a 기반 StringID
+
+`STRID`와 `WSTRID`는 FNV-1a 64-bit로 문자열을 `_string_id`, 즉 `uint64_t` 값으로 변환한다. 문자열 리터럴에는 `constexpr` 함수가 적용되므로 컴파일 시점에 ID를 만들 수 있고, 동적으로 읽은 문자열도 같은 알고리즘으로 런타임 변환할 수 있다.
+
+```cpp title="Engine_Typedef.h"
+constexpr uint64_t STRID(const char* text)
+{
+    uint64_t hash = 14695981039346656037ull;
+
+    while (*text != '\0')
+    {
+        hash ^= static_cast<uint8_t>(*text++);
+        hash *= 1099511628211ull;
+    }
+
+    return hash;
+}
+```
+
+`StringID`는 Hash를 실제 동일성으로 사용하고, 디버그 빌드에서 원래 문자열을 확인할 수 있도록 별도 문자열 정보를 보관할 수 있게 설계했다. `std::hash<StringID>`도 제공해 Engine의 각종 Registry와 `unordered_map` Key로 바로 사용할 수 있다.
+
+```cpp
+constexpr StringID playerPrototype{ "Prototype_GameObject_Player" };
+
+if (objectTag == playerPrototype)
+{
+    // 문자열 전체가 아니라 64-bit ID를 비교한다.
+}
+```
+
+## magic_enum 도입
+
+magic_enum은 Enum 값을 이름으로 바꾸거나 Enum 목록을 순회할 때 별도 매핑 테이블을 만들지 않게 해준다. 프로젝트에서는 다음 영역에 사용했다.
+
+- ImGui Combo와 디버그 화면의 Enum Label
+- JSON 직렬화·역직렬화 보조
+- Lua Binding에 Enum 이름 노출
+- Collision Layer 같은 Flag Enum 표시
+- Enum 값을 `StringID`로 변환
+
+```cpp
+template<typename E>
+    requires std::is_enum_v<E>
+StringID(E value)
+    : StringID(magic_enum::enum_name(value))
+{
+}
+```
+
+`MagicEnumToStringView`는 입력이 Enum이면 `magic_enum::enum_name`을, 문자열이면 `string_view`를 반환한다. 덕분에 에디터 Helper API가 Enum과 문자열 입력을 같은 형태로 받을 수 있다.
+
+Collision Layer는 여러 비트를 동시에 선택하는 Mask이므로 Flag Enum임을 명시했다.
+
+```cpp
+template <>
+struct magic_enum::customize::enum_range<Client::COLLISION_LAYER>
+{
+    static constexpr bool is_flags = true;
+};
+```
+
+## 연결 효과
+
+StringID와 magic_enum은 독립적인 편의 기능에 그치지 않았다.
+
+- Object Factory는 타입의 `StaticType`을 Hash Key로 사용한다.
+- Prototype·Resource Manager는 문자열로 읽은 태그를 동일한 ID 체계로 조회한다.
+- 자체 Derived Type은 클래스 이름을 `STRID`로 변환해 `IsA`와 `Cast`에 사용한다.
+- 에디터와 로그에서는 magic_enum으로 사람이 읽을 수 있는 이름을 유지한다.
+
+즉, 외부 데이터와 툴에서는 이름을 유지하고 런타임 중심부에서는 64-bit ID로 다루는 경계가 만들어졌다.
+
+## 한계와 개선 방향 {/* #트레이드오프 */}
+
+Hash 충돌 가능성은 64-bit에서도 0이 아니다. 현재 동일성 판정은 Hash를 기준으로 하므로, 저장 데이터에 무제한 사용자 문자열을 허용하는 용도보다 엔진이 통제하는 태그와 타입 이름에 적합하다. 또한 동적 문자열의 디버그 이름 보관은 할당을 만들 수 있으므로 Hot Path에서는 리터럴 기반 ID를 우선 사용해야 한다.
+
+## 구현 결과 {/* #결과 */}
+
+문자열 중심의 기존 사용성을 유지하면서 Manager와 Registry의 Key를 고정 크기로 통일했다. 동시에 Enum Label과 Flag UI를 자동화해 새로운 Enum을 추가할 때 변환용 `switch`와 문자열 테이블을 함께 수정해야 하는 비용을 줄였다.

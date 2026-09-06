@@ -1,0 +1,99 @@
+---
+id: hogwarts-project-workflow
+project: hogwarts-legacy
+title: 프로젝트 운영과 리소스 파이프라인
+description: 7인 팀에서 코드 통합 충돌을 줄이고 대용량 리소스를 실행 환경에 연결한 방법
+slug: /hogwarts-legacy/project-workflow
+order: 10
+featured: true
+tags:
+  - Git
+  - Workflow
+  - Asset Pipeline
+---
+
+# 프로젝트 운영과 리소스 파이프라인
+
+## 프로젝트 개요
+
+《호그와트 레거시》 모작은 7명이 2개월 동안 C++20과 DirectX 11 자체 엔진으로 제작한 3D 액션 RPG 프로젝트다. 나는 팀장 겸 Framework·Physics 담당으로서 기능 구현뿐 아니라 여러 담당자의 코드가 하나의 실행 파일에서 계속 통합될 수 있도록 엔진 기반과 작업 흐름을 정리했다.
+
+프로젝트는 `Engine`, `Client`, `MapEditor`, `Model_Binarization`처럼 책임에 따라 실행 대상과 도구를 분리했다. 공용 기능은 Engine DLL에 두고, 실제 게임 규칙과 레벨 구성은 Client에 유지했다. 이 경계를 기준으로 물리, 렌더링, 애니메이션, 이펙트, UI 담당자가 동시에 작업할 수 있도록 했다.
+
+## Git 운영 방식
+
+기본 통합 브랜치는 `develop`으로 두고, 작업은 GitHub Issue 번호를 포함한 기능 브랜치에서 진행했다.
+
+```text
+#2-FrameworkMaintenance
+#50-physx-통합
+#84-lua
+#143-LightEditor
+#211-blast
+#229-confringo-effect
+#268-door
+```
+
+작업 단위는 다음 흐름으로 관리했다.
+
+1. Issue에서 구현 범위와 담당자를 구분한다.
+2. Issue 번호 기반 브랜치에서 작은 기능 단위로 커밋한다.
+3. 장기간 유지되는 Framework 브랜치는 수시로 `develop`을 병합해 충돌을 앞당겨 해결한다.
+4. 여러 파트가 동시에 바뀌는 날에는 통합 브랜치에서 Player, UI, Effect, Renderer 등을 순차 병합하고 빌드·실행을 확인한다.
+5. 검증이 끝난 작업을 Pull Request로 `develop`에 반영한다.
+
+특히 Framework는 거의 모든 파트가 의존하므로, 큰 변경을 한 번에 밀어 넣기보다 Handle, Fixed Update, 지연 파괴, 타입 시스템처럼 독립적으로 검증 가능한 단위로 나눴다. 충돌 해결 커밋과 기능 커밋도 분리해 리뷰할 때 실제 변경 의도를 찾기 쉽게 유지했다.
+
+## 코드와 대용량 리소스의 분리
+
+소스 저장소에는 C++·HLSL·빌드 설정·원본 JSON처럼 변경 이력을 확인해야 하는 파일을 둔다. 모델, 텍스처, 사운드, Cooked PhysX 데이터처럼 용량이 큰 바이너리는 별도 리소스 루트로 분리했다.
+
+실행 폴더의 `Client/Bin/Resources`는 별도 리소스 디렉터리를 가리키는 Symbolic Link다. 같은 데이터를 빌드 폴더마다 복제하지 않고, 엔진과 각 도구가 동일한 리소스 트리를 바라보게 했다.
+
+```text
+JUSIN_160_FINAL_TEAM_PROJECT/
+├─ Engine/
+├─ Client/
+├─ Model_Binarization/
+└─ Client/Bin/Resources  ── symbolic link ──▶  JUSIN_160_FINAL_TEAM_RESOURCE/
+
+JUSIN_160_FINAL_TEAM_RESOURCE/
+├─ Models
+├─ Textures
+├─ Sound
+├─ PhysX
+├─ NvCloth
+└─ json
+```
+
+FBX 같은 원본 모델은 `Model_Binarization` 도구로 엔진 전용 `.bin` 포맷으로 변환했다. 물리 Convex Mesh, NvCloth 설정, 충돌·레벨·이펙트 JSON도 용도별 디렉터리로 나누어 런타임 로더가 예측 가능한 경로를 사용하게 했다.
+
+## 원본 JSON과 실행용 JSON의 구분
+
+에디터에서 저장하는 JSON은 `Engine/JsonFiles` 또는 `Client/JsonFiles`를 원본으로 삼고, `Bin/JsonFiles`는 실행용 산출물로만 취급했다. 빌드 후 이벤트에서 Engine 공용 JSON을 먼저 복사한 다음 Client JSON을 덮어써, 공통 기본값과 게임별 재정의를 함께 사용할 수 있게 했다.
+
+이 규칙은 “실행 폴더에서 수정한 값이 다음 빌드에 사라지는 문제”와 “누가 어떤 JSON을 변경했는지 Git에서 확인할 수 없는 문제”를 막기 위한 것이었다.
+
+## 빌드 후 배포 자동화
+
+`CopyCommon.bat`와 대상별 배치 파일에서 다음 항목을 실행 폴더로 모았다.
+
+- Engine Public Header와 DLL/LIB
+- Engine·Client Shader
+- Decal Material과 Lua Script
+- Engine 공용 JSON과 Client JSON
+- FMOD, HBAO+, PhysX, NvCloth, vcpkg DLL
+- Debug Lua 디버깅 설정과 PDB
+
+Debug와 Release에 맞는 DLL 경로를 분기해 복사하고, `Bin`, `EngineSDK`, `vcpkg_installed` 같은 재생성 가능한 결과물은 Git에서 제외했다. 그 결과 새 작업 환경에서는 소스와 리소스 경로를 준비한 뒤 빌드만으로 실행 디렉터리를 다시 구성할 수 있었다.
+
+## 이 구조에서 얻은 것
+
+- 파트별 기능 브랜치와 통합 브랜치를 구분해 대규모 병합의 위험을 낮췄다.
+- 공용 엔진과 게임 코드를 분리해 담당자 간 수정 범위를 명확히 했다.
+- 대용량 바이너리와 코드 이력을 분리하면서도 Symbolic Link로 동일한 런타임 경로를 유지했다.
+- 원본 데이터와 실행 산출물을 구분해 에디터 데이터의 유실과 중복 수정을 줄였다.
+
+## 회고
+
+별도 리소스 디렉터리는 로컬 용량과 복사 시간을 줄이는 데 효과적이었지만, 코드 커밋과 리소스 버전의 대응 관계를 Git만으로 완전히 추적하기는 어렵다. 다시 설계한다면 대용량 파일은 Git LFS나 버전이 명시된 아티팩트 저장소로 이전하고, 코드 커밋에 호환 리소스 버전을 함께 기록하겠다.

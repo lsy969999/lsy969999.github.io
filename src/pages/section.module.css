@@ -1,0 +1,458 @@
+.page {
+  min-height: calc(100vh - var(--ifm-navbar-height));
+  padding: clamp(3rem, 7vw, 6rem) 1.5rem;
+}
+
+.content {
+  width: min(100%, 72rem);
+  margin: 0 auto;
+}
+
+.eyebrow {
+  margin-bottom: 0.75rem;
+  color: var(--ifm-color-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.title {
+  margin-bottom: 1rem;
+  font-size: clamp(2.5rem, 7vw, 5rem);
+  letter-spacing: -0.05em;
+}
+
+.description {
+  max-width: 46rem;
+  margin-bottom: 3rem;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 1.1rem;
+  line-height: 1.8;
+}
+
+.projectOverview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.75rem;
+  max-width: 58rem;
+  margin: 0 0 1.25rem;
+}
+
+.projectOverviewItem {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 0.85rem;
+  background: var(--ifm-card-background-color);
+}
+
+.projectOverviewItem dt {
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.projectOverviewItem dd {
+  margin: 0;
+  color: var(--ifm-color-emphasis-800);
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.projectSection {
+  margin-top: 3rem;
+}
+
+.projectIntro {
+  max-width: 58rem;
+  margin: 0;
+  color: var(--ifm-color-emphasis-800);
+  font-size: 1.05rem;
+  line-height: 1.85;
+}
+
+.taskGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.taskCard {
+  padding: 1.4rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 1rem;
+  background: var(--ifm-card-background-color);
+}
+
+.taskCard h3 {
+  margin-bottom: 0.7rem;
+  font-size: 1.05rem;
+}
+
+.projectList {
+  margin: 0;
+  padding-left: 1.15rem;
+}
+
+.projectList li {
+  color: var(--ifm-color-emphasis-750);
+  line-height: 1.7;
+}
+
+.projectList li + li {
+  margin-top: 0.55rem;
+}
+
+.taskCard {
+  position: relative;
+  overflow: hidden;
+}
+
+.taskCard::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: var(--ifm-color-primary);
+  content: '';
+}
+
+.taskCard p {
+  margin: 0;
+  color: var(--ifm-color-emphasis-700);
+  line-height: 1.7;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  display: flex;
+  min-height: 14rem;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.75rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 1.5rem;
+  background: var(--ifm-card-background-color);
+  color: inherit;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.card:hover {
+  border-color: var(--ifm-color-primary);
+  color: inherit;
+  text-decoration: none;
+  transform: translateY(-0.25rem);
+  box-shadow: 0 1.25rem 3rem rgba(18, 30, 50, 0.08);
+}
+
+.cardTitle {
+  margin-bottom: 0.75rem;
+  font-size: 1.5rem;
+}
+
+.cardPeriod {
+  margin: -0.35rem 0 0.8rem;
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.cardDescription {
+  color: var(--ifm-color-emphasis-700);
+}
+
+.cardLink {
+  color: var(--ifm-color-primary);
+  font-weight: 700;
+}
+
+.panel {
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 1.5rem;
+  background: var(--ifm-card-background-color);
+}
+
+.sectionTitle {
+  margin-bottom: 1.25rem;
+  font-size: 1.5rem;
+}
+
+.articleSection {
+  margin-top: 3rem;
+}
+
+.archiveSectionHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.articleCount {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.articleTree {
+  margin: 0;
+  padding: 0.4rem 0;
+  list-style: none;
+}
+
+.treeChildren {
+  margin: 0 0 0 0.72rem;
+  padding: 0 0 0 1.15rem;
+  border-left: 1px solid var(--ifm-color-emphasis-300);
+  list-style: none;
+}
+
+.treeGroup,
+.treeDocument {
+  position: relative;
+  margin: 0;
+}
+
+.treeChildren > .treeGroup::before,
+.treeChildren > .treeDocument::before {
+  position: absolute;
+  top: 1.28rem;
+  left: -1.15rem;
+  width: 0.8rem;
+  border-top: 1px solid var(--ifm-color-emphasis-300);
+  content: '';
+}
+
+.treeGroupSummary {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.55rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.55rem;
+  cursor: pointer;
+  font-weight: 700;
+  list-style: none;
+}
+
+.treeGroupSummary:hover {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.treeGroupSummary::-webkit-details-marker {
+  display: none;
+}
+
+.treeGroupSummary::before {
+  width: 0.7rem;
+  color: var(--ifm-color-emphasis-500);
+  content: '›';
+  font-size: 1.1rem;
+  line-height: 1;
+  transition: transform 140ms ease;
+}
+
+.treeGroup details[open] > .treeGroupSummary::before {
+  transform: rotate(90deg);
+}
+
+.articleTree > .treeGroup > details > .treeGroupSummary {
+  font-size: 1.05rem;
+}
+
+.treeFolderIcon {
+  display: inline-grid;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--ifm-color-primary);
+}
+
+.treeFolderIcon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.treeFolderOpen {
+  display: none;
+}
+
+.treeGroup > details[open] > .treeGroupSummary .treeFolderClosed {
+  display: none;
+}
+
+.treeGroup > details[open] > .treeGroupSummary .treeFolderOpen {
+  display: block;
+}
+
+.treeGroupLabel {
+  min-width: 0;
+}
+
+.treeGroupCount {
+  margin-left: auto;
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.72rem;
+}
+
+.treeDocumentLink {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.6rem;
+  border-radius: 0.65rem;
+  color: inherit;
+}
+
+.treeDocumentLink:hover {
+  background: var(--ifm-color-emphasis-100);
+  color: inherit;
+  text-decoration: none;
+}
+
+.treeDocumentIcon {
+  position: relative;
+  width: 0.85rem;
+  height: 1.05rem;
+  margin-top: 0.15rem;
+  border: 1.5px solid var(--ifm-color-emphasis-500);
+  border-radius: 0.1rem;
+  flex: 0 0 auto;
+}
+
+.treeDocumentIcon::after {
+  position: absolute;
+  top: 0.25rem;
+  left: 0.18rem;
+  width: 0.42rem;
+  border-top: 1px solid var(--ifm-color-emphasis-500);
+  box-shadow: 0 0.2rem 0 var(--ifm-color-emphasis-500);
+  content: '';
+}
+
+.treeDocumentBody {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.treeDocumentTitle {
+  font-weight: 700;
+}
+
+.treeDocumentDescription {
+  color: var(--ifm-color-emphasis-650);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.treeDocumentTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.65rem;
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.emptyState {
+  padding: 2rem;
+  border: 1px dashed var(--ifm-color-emphasis-300);
+  border-radius: 1rem;
+  color: var(--ifm-color-emphasis-600);
+  text-align: center;
+}
+
+.article {
+  max-width: 58rem;
+}
+
+.articleTitle {
+  max-width: 50rem;
+  margin-bottom: 1.25rem;
+  font-size: clamp(2.3rem, 6vw, 4.5rem);
+  line-height: 1.1;
+  letter-spacing: -0.045em;
+}
+
+.articleLead {
+  max-width: 48rem;
+  margin-bottom: 2rem;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 1.2rem;
+  line-height: 1.85;
+}
+
+.note {
+  margin-bottom: 3rem;
+  padding: 1.25rem 1.5rem;
+  border-left: 4px solid var(--ifm-color-primary);
+  border-radius: 0 0.75rem 0.75rem 0;
+  background: var(--ifm-color-emphasis-100);
+  line-height: 1.7;
+}
+
+.articleSectionBlock {
+  margin-top: 3.5rem;
+}
+
+.articleSectionBlock p,
+.articleSectionBlock li {
+  color: var(--ifm-color-emphasis-800);
+  line-height: 1.8;
+}
+
+.decisionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.decisionCard {
+  padding: 1.25rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 1rem;
+  background: var(--ifm-card-background-color);
+}
+
+.decisionCard h3 {
+  font-size: 1.05rem;
+}
+
+.decisionCard p {
+  margin: 0;
+}
+
+.checkList {
+  padding-left: 1.25rem;
+}
+
+@media (max-width: 700px) {
+  .decisionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .taskGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.backLink {
+  display: inline-block;
+  margin-bottom: 2rem;
+  font-weight: 700;
+}

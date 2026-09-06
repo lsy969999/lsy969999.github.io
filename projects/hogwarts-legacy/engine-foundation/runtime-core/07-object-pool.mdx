@@ -1,0 +1,235 @@
+---
+id: hogwarts-handle-object-pool
+project: hogwarts-legacy
+title: Handle 생명주기를 유지하는 Object Pool
+description: 객체 소유권을 Manager에 유지하면서 활성 상태만 전환하는 Handle 기반 범용 Pool을 구현한 과정
+slug: /hogwarts-legacy/handle-object-pool
+order: 60
+featured: true
+tags:
+  - C++20
+  - Object Pool
+  - Handle
+  - Runtime
+---
+
+# Handle 생명주기를 유지하는 Object Pool
+
+## 배경과 목표 {/* #문제 */}
+
+투사체, 마법 발판, 파괴 가능한 Props처럼 반복 생성되는 GameObject를 매번 Clone하고 제거하면 생성 비용뿐 아니라 Component와 Physics 객체의 생성·해제 비용이 계속 발생한다.
+
+그렇다고 GameObject Manager 밖으로 객체 소유권을 꺼내면 기존 Handle, Layer, 지연 파괴 규칙과 별도의 생명주기가 생긴다. Pool 때문에 안전한 객체 참조 체계를 우회하지 않는 구조가 필요했다.
+
+## 소유권을 옮기지 않는 Pool
+
+Pool 객체도 일반 GameObject처럼 Manager Slot이 소유한다. Pool Manager는 객체 포인터나 소유권 대신 Handle과 활성 상태만 관리한다.
+
+```text
+GameObject Manager
+└─ Slot이 객체를 계속 소유
+
+GameObject Pool Manager
+├─ Available Handles
+└─ Active Handles
+```
+
+반환된 객체는 삭제되지 않는다. `SetManagedUpdateEnabled(false)`로 Managed Update에서 제외하고 Available 목록에 보관한다. 다시 획득하면 같은 Handle로 활성화한다.
+
+이 방식은 다음 규칙을 그대로 유지한다.
+
+- 외부 참조는 Generation Handle로 검증
+- Layer와 Slot 소유권은 GameObject Manager에 유지
+- 강제로 파괴된 객체는 기존 지연 파괴 경로 사용
+- Pool 전용 Pointer Registry를 추가하지 않음
+
+## Managed Update를 런타임 스위치로 분리
+
+GameObject에는 생성 시 정하는 `GAMEOBJECT_UPDATE_LOOP` Mask와 런타임에 바꾸는 `Managed Update`를 분리했다. Mask는 객체가 참여할 Update View를 구성하는 정적 분류값이고, `SetManagedUpdateEnabled()`는 이미 구성된 View를 다시 만들지 않고 각 Dispatch 직전에 검사하는 Master Switch다.
+
+```cpp
+for (CGameObject* object : updateObjects)
+{
+    if (!object->GetPendingDestroy() &&
+        object->IsManagedUpdateEnabled())
+    {
+        object->Update(deltaTime);
+    }
+}
+```
+
+같은 값을 다시 설정하면 Hook을 중복 호출하지 않으며, 상태가 실제로 바뀔 때만 아래 확장 지점을 실행한다.
+
+```cpp
+virtual void OnManagedUpdateEnabled() {}
+virtual void OnManagedUpdateDisabled() {}
+```
+
+`SetManagedUpdateEnabledCascade()`도 남아 있지만 현재 GameObject 계층 구조를 제거한 뒤에는 단일 객체에 같은 요청을 전달하는 호환 API다. 이름만 보고 자식 객체까지 자동 전파된다고 가정하지 않도록 구현과 문서에서 이 차이를 명시했다.
+
+Managed Update는 Engine의 네 Update Dispatch를 차단할 뿐, 모든 외부 시스템을 자동으로 정지시키는 기능은 아니다. 예를 들어 Pool에 반환한 Oil Barrel은 Hook에서 다음 상태까지 직접 바꾼다.
+
+- Collider Simulation과 Scene Query 비활성화
+- Gravity 비활성화와 RigidBody Sleep
+- 선속도·각속도 초기화
+- 재획득 시 Simulation, Query, Gravity 복구와 Wake Up
+
+이 객체는 `LateUpdate()`에서 Render Group에 자신을 등록하므로 Managed Update가 꺼지면 렌더 등록도 멈춘다. 반대로 별도 Manager가 Renderable을 장기간 캐시하는 객체라면 비활성 Hook에서 그 등록도 직접 해제해야 한다.
+
+## Pool 등록
+
+Pool마다 생성량과 고갈 정책을 Descriptor로 지정한다.
+
+```cpp
+struct POOL_DESC
+{
+    size_t iPrewarmCount{8};
+    size_t iGrowCount{4};
+    size_t iMaxCount{32};
+    EXHAUST_POLICY eExhaustPolicy{EXHAUST_POLICY::GROW};
+    std::function<std::optional<CHandle>()> fnCreate;
+};
+```
+
+`fnCreate`는 객체 생성 방법을 Pool Manager에 고정하지 않는다. Client가 Prototype, Layer, Object Descriptor를 결정하고 생성된 Handle만 반환한다. 등록 시 Prewarm 수만큼 객체를 생성한 뒤 즉시 비활성 상태로 전환한다.
+
+Max Count가 0이면 상한을 두지 않는다. Prewarm이 Max보다 크거나, Grow 정책인데 Grow Count가 0인 잘못된 설정은 등록 단계에서 거부한다.
+
+## 고갈 정책
+
+Available 객체가 없을 때 세 가지 정책 중 하나를 적용한다.
+
+| 정책 | 동작 | 적합한 사례 |
+| --- | --- | --- |
+| `GROW` | Grow Count만큼 추가 생성 | 순간 사용량이 달라지는 일반 이펙트·게임플레이 객체 |
+| `FAIL` | 획득 실패 반환 | 최대 개수를 엄격하게 제한해야 하는 객체 |
+| `RECYCLE_OLDEST` | 가장 오래된 Active 객체를 반환 후 재사용 | 오래된 흔적을 버려도 되는 탄흔·표식 |
+
+Active 목록은 `deque`로 관리해 가장 오래된 Handle을 앞에서 찾는다. Available 목록은 순서가 중요하지 않아 Vector의 뒤에서 꺼낸다.
+
+## Acquire
+
+```text
+Pool 조회
+   ↓
+Available의 무효 Handle 정리
+   ↓
+비어 있으면 고갈 정책 실행
+   ↓
+Handle로 GameObject 재검증
+   ↓
+OnAcquireFromPool(pArg)
+   ↓
+Managed Update 활성화
+   ↓
+Active 목록 이동
+```
+
+획득 직전에는 Handle State, Pool Key, Active 여부, GameObject 존재 여부와 Pending Destroy 상태를 다시 검사한다. 외부 시스템이 객체를 파괴했더라도 오래된 Handle을 그대로 재사용하지 않는다.
+
+GameObject의 `AcquireFromPool()`은 이전 사용에서 남은 PhysX Sync Pose를 초기화한다. 그 뒤 파생 객체의 `OnAcquireFromPool()`이 새 위치, 회전, 속도처럼 객체별 상태를 구성하고 성공했을 때만 Managed Update를 켠다.
+
+## Release
+
+Release는 Active 목록에서 Handle을 제거하고 객체의 `OnReleaseToPool()`을 호출한 뒤 Available 목록으로 돌려보낸다.
+
+기본 GameObject 처리는 다음과 같다.
+
+- Managed Update 비활성화
+- 이전 PhysX Sync 결과 초기화
+- 파생 객체 정리 Hook 실행
+
+예를 들어 Oil Barrel은 재사용 전에 다른 객체와 연결된 Joint를 해제하고, 재획득할 때 Pose와 선속도·각속도를 초기화한다. 단순히 화면에서 숨기는 것만으로는 남을 수 있는 물리 상태까지 객체가 직접 정리한다.
+
+## 외부 파괴와 FrameEnd 정리
+
+Pool 객체도 일반 파괴 API의 대상이 될 수 있다. 따라서 Pool의 Handle 목록이 객체보다 오래 살아남는 경우를 고려했다.
+
+`FrameEnd()`에서 Available과 Active Handle을 다시 조회해 다음 항목을 제거한다.
+
+- Generation이 달라진 Handle
+- 이미 Slot에서 제거된 객체
+- Pending Destroy 객체
+- Pool State와 소속 Pool Key가 맞지 않는 항목
+
+실제 파괴는 GameObject Manager가 담당하고, Pool은 추적 Record와 Count만 정리한다. 두 Manager가 서로 같은 객체의 소유권을 가지지 않는다.
+
+## Layer Reset과 수명주기 연결
+
+Pooling을 도입하면서 레벨 전환을 위해 모든 객체를 일괄 삭제하는 방식도 Layer 기준으로 확장했다.
+
+```cpp
+size_t ResetObjectsInLayers(span<string_view> layers);
+size_t ResetAllObjectsExceptLayers(span<string_view> excludedLayers);
+```
+
+첫 API는 지정한 Layer만, 두 번째 API는 지정한 Layer를 제외한 나머지를 제거 대상으로 삼는다. 내부에서는 Slot 수와 Layer 수에 맞춘 `uint8_t` 표식 배열로 대상을 한 번 표시한 뒤 Slot을 순회한다. 문자열 집합 조회를 모든 객체마다 반복하지 않고, 한 호출 안에서 필요한 포함 여부만 값 타입으로 보관하기 위한 선택이다.
+
+Reset도 객체를 즉시 해제하지 않는다.
+
+```text
+Layer 조건으로 대상 표시
+        ↓
+GameObject에 Pending Destroy 예약
+        ↓
+FrameEnd에서 Handle Queue를 wave 단위로 drain
+        ↓
+Slot Reset · Generation 증가 · Layer Handle 제거
+        ↓
+Pool Manager가 남은 stale Handle Record 정리
+```
+
+GameObject Manager의 `FrameEnd()`는 삭제나 Batch Reset 요청이 없는 프레임에는 컨테이너를 순회하지 않는다. 처리할 Reset Layer 집합은 먼저 `move`로 떼어 내므로, 객체 소멸 중 새로 들어온 Reset 요청은 현재 처리와 섞이지 않고 다음 FrameEnd의 책임이 된다. 반면 소멸자가 다른 객체의 파괴를 요청하는 경우에는 Pending Queue를 다음 wave로 바꿔 같은 FrameEnd 안에서 끝까지 비운다.
+
+일반 개별 파괴로 Layer가 비면 Layer 이름은 유지한다. 명시적으로 Reset 대상이 된 Layer만 비었을 때 제거해, 런타임 Spawn 지점으로 쓰는 빈 Layer와 “레이어 자체를 제거한다”는 요청을 구분했다.
+
+Pool 객체가 포함된 Layer를 Reset하면 Handle도 결국 무효화된다. GameObject Manager가 먼저 실제 파괴를 끝내고 같은 프레임에 Pool Manager가 실행되어, Available·Active 목록에서 무효 Handle과 Pending Destroy Record를 제거한다. Pool 자체의 등록 수명은 별도이므로, Level이나 소유 Controller는 종료 시 `UnregisterPool()`을 호출한다.
+
+## 적용 사례
+
+### Magic Square Step
+
+여러 개의 발판을 반복 생성하는 Controller가 Pool을 등록한다. 생성 Lambda는 Prototype과 Layer를 선택하고, `Acquire()` 시 발판별 위치와 동작 데이터를 전달한다. 사용이 끝나면 파괴 대신 `Release()`하여 다시 사용한다.
+
+### Oil Barrel
+
+물리 Component와 Joint를 가진 객체를 Pool로 재사용한다. Acquire 시 RigidBody Pose와 Velocity를 초기화하고, Release 시 연결된 Joint와 동적 Component를 정리한다. Pooling이 단순 렌더 객체뿐 아니라 Physics 객체에도 적용될 수 있는지 검증한 사례다.
+
+## 진단 기능
+
+ImGui에서 전체 Pool 수와 객체 상태를 확인할 수 있다.
+
+- Total, Active, Available Count
+- Pool 이름 검색
+- Prewarm, Grow, Max Count와 고갈 정책
+- Active·Available Handle 목록
+- 실제 추적 수와 Total Count 불일치 경고
+- Pool별 Release All
+
+상세 Handle 표시는 필요할 때만 켜서 큰 Pool의 GUI 비용을 줄인다.
+
+## 객체가 지켜야 하는 재사용 계약
+
+Pool Manager는 공통 수명주기만 제공하고 객체별 초기 상태는 알지 못한다. 따라서 Pool 대상 클래스는 다음 계약을 지켜야 한다.
+
+1. `OnAcquireFromPool(pArg)`에서 이번 사용에 필요한 위치, 회전, Timer와 Gameplay State를 다시 설정한다.
+2. 실패할 수 있는 초기화는 `_bool`로 반환하고, 실패하면 객체는 다시 Available 상태에 남는다.
+3. `OnReleaseToPool()`에서 Joint, Effect Handle, Target Handle처럼 다음 사용에 남으면 안 되는 관계를 끊는다.
+4. `OnManagedUpdateDisabled()`에서 Physics, Query처럼 GameObject Update 밖에서 계속 동작하는 시스템을 멈춘다.
+5. Pool에 등록한 Level 또는 Controller는 자신의 종료 전에 Pool 등록을 해제한다.
+
+Clone 시 전달하는 Descriptor는 Component 구성처럼 객체 생애 동안 유지되는 초기화에 사용하고, `Acquire()`의 `pArg`는 Spawn 위치처럼 매 사용마다 달라지는 값에 사용한다. 두 인자를 구분해야 재사용 Hook이 객체를 부분 초기화하는 실수를 줄일 수 있다.
+
+## 한계와 개선 방향 {/* #트레이드오프 */}
+
+Manager 소유권을 유지하므로 Available 객체도 Slot과 Layer 공간을 차지한다. 대신 객체 참조 규칙이 하나로 유지되고 재활성화할 때 새 Handle을 발급할 필요가 없다.
+
+`Release()`는 현재 Active `deque`에서 대상을 선형 탐색한다. 매우 큰 Pool에서 임의 객체 반환이 빈번하다면 Handle별 Active Iterator나 Index를 추가할 수 있다. 현재 적용 규모에서는 구조 복잡도보다 단순성과 검증 가능성을 우선했다.
+
+또한 `GROW` 정책은 순간 부하를 처리하지만 Peak 사용량만큼 객체가 남는다. 현재 구현에는 자동 축소 정책이 없으므로 Pool Key별 Total·Active·Available Count를 관찰해 Prewarm, Grow, Max 값을 콘텐츠 특성에 맞춰야 한다.
+
+성능 개선의 근거는 반복 생성·Component/PhysX 재구성을 재사용 경로로 옮긴 구조에 있다. 이 문서에서는 특정 배율을 주장하지 않았다. 객체 종류와 동시 사용량에 따라 비용 구조가 다르므로 실제 효과는 Tracy 구간과 Pool 진단 Count로 측정해야 한다.
+
+## 구현 결과 {/* #결과 */}
+
+반복 객체를 재사용하면서도 Generation Handle, Layer, FrameEnd 파괴라는 기존 생명주기를 유지했다. Pool을 별도 소유권 영역으로 만들지 않아 외부 참조와 디버깅 규칙을 통일했고, 게임별 객체는 Acquire/Release와 Managed Update Hook으로 재사용 정책에 참여할 수 있게 됐다.

@@ -17,9 +17,12 @@ npm run start
 ## Verification
 
 ```bash
+npm run validate
 npm run typecheck
 npm run build
 ```
+
+문서 작성 규칙과 프로젝트 등록 방법은 [CONTENT_GUIDE.md](./CONTENT_GUIDE.md)를 참고합니다.
 
 ## Deployment
 

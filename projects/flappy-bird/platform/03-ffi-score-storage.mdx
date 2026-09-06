@@ -1,0 +1,124 @@
+---
+id: flappy-bird-ffi-score-storage
+project: flappy-bird
+title: 플랫폼별 FFI와 최고 점수 저장·콜백 연결
+description: 공통 Rust API를 파일·SharedPreferences·UserDefaults·localStorage에 연결하고 외부 콜백을 Bevy 이벤트로 전달한 구현
+slug: /flappy-bird/ffi-score-storage
+order: 30
+featured: true
+tags:
+  - Rust
+  - Bevy
+  - FFI
+  - Android
+  - iOS
+  - Web
+---
+
+# 플랫폼별 FFI와 최고 점수 저장·콜백 연결
+
+## 같은 게임 로직에서 서로 다른 플랫폼 기능 호출
+
+FlappyBird는 공통 Rust 게임 로직을 데스크톱·Android·iOS·Web 진입점에서 사용한다. 각 진입점은 창과 렌더링 설정을 구성한 뒤 같은 `AppPlugin`을 등록한다. 최고 점수 저장처럼 플랫폼 기능이 필요한 부분은 공통 게임 로직 안에 운영체제 분기를 흩어 놓지 않고 FFI 모듈로 모았다.
+
+핵심은 **게임 코드의 저장 API를 유지하면서 플랫폼 저장소를 교체하고, 네이티브·JavaScript에서 돌아오는 콜백을 Bevy의 갱신 흐름으로 전달한 것**이다. 크로스 플랫폼 연결 경험과 함께 언어 경계에서 남아 있는 오류 처리·메모리 수명 문제도 구현 범위로 구분한다.
+
+## 빌드 타깃에 따라 선택되는 공통 API
+
+`src/ffi/mod.rs`는 `Ffi` 타입과 다음 trait를 정의한다.
+
+```rust
+pub trait FfiKv {
+    fn get(key: &str) -> String;
+    fn set(key: &str, val: &str);
+}
+```
+
+각 플랫폼 모듈은 같은 `Ffi`에 `FfiKv`를 구현한다. `cfg` 조건으로 iOS·Android·wasm32 모듈 중 해당하는 구현을 컴파일하며, 나머지 환경은 desktop 구현을 사용한다.
+
+이는 런타임에 저장 백엔드를 선택하거나 trait object를 교체하는 구조가 아니다. 빌드 타깃에서 구현이 정해지므로 게임에서는 `Ffi::get("score")`, `Ffi::set("score", &json)`이라는 동일한 호출을 사용할 수 있다.
+
+연결 확인용 `FfiGreet`도 별도로 두었으며, 모바일에서만 정의하는 `FfiAd`는 광고 표시 요청을 담당한다. 데스크톱 파일 저장까지 모두 외부 언어를 호출하는 것은 아니지만 플랫폼 서비스 접근을 같은 모듈 아래로 모았다는 의미에서 FFI 계층으로 관리한다.
+
+## 최고 점수를 문자열 계약으로 통일
+
+공통 데이터는 Serde를 적용한 `Score { score: u32 }`이며, 저장 키는 `score`다. 값은 예를 들어 `{"score":42}`와 같은 JSON 문자열이다. 플랫폼 코드가 게임 점수 타입을 이해할 필요 없이 문자열을 저장하고 반환하도록 했다.
+
+결과 패널 생성 시 기존 기록을 읽어 숫자 UI를 만들고, 패널 상승 완료 콜백에서 다시 기록을 확인한다. 현재 점수가 저장된 최고 기록보다 클 때만 JSON으로 직렬화해 저장한다. 기록 갱신은 UI 카운트 애니메이션 완료를 기다리지 않는다.
+
+빈 문자열이나 JSON 해석 실패는 기존 최고 기록 0으로 처리한다. 다만 이 계약은 없는 값과 읽기 실패를 명확히 구분하지 않으며, `set()`의 반환형도 `Result`가 아니므로 게임은 저장 성공을 확인할 수 없다. 서버 순위·클라우드 동기화·변조 방지가 아니라 기기 또는 브라우저에 남기는 로컬 기록이다.
+
+## 플랫폼별 저장 경로
+
+| 실행 환경 | 호출 경계 | 실제 저장소 |
+| --- | --- | --- |
+| Desktop | 공통 Rust → desktop 구현 | ProjectDirs의 앱 데이터 디렉터리 아래 `kv/<key>` 파일 |
+| Android | Rust JNI → MainActivity 메서드 | `test` 이름의 SharedPreferences |
+| iOS | Rust C ABI → Swift 함수 | UserDefaults.standard |
+| Web | wasm-bindgen → JavaScript 전역 함수 | 페이지의 localStorage |
+
+### Desktop: 앱 데이터 디렉터리의 파일
+
+`ProjectDirs`로 `bevy_flappybird`의 데이터 경로를 얻고 그 아래 `kv` 폴더를 사용한다. 읽기는 키 이름의 파일을 열어 전체 내용을 문자열로 반환한다. 쓰기는 폴더를 만든 다음 파일을 생성해 전체 문자열을 기록한다.
+
+실행 파일 옆의 상대 경로 대신 사용자 데이터 경로를 사용하는 점이 특징이다. 파일 접근 오류는 로그와 빈 반환값 또는 조기 반환으로 처리한다. 파일을 직접 덮어쓰므로 임시 파일 교체·백업·원자적 저장을 제공하지 않으며, 키를 파일명으로 쓰는 구조도 현재처럼 제어된 키를 전제로 한다.
+
+### Android: JNI로 Activity 저장 함수 호출
+
+Rust는 `ndk_context`에서 VM과 Activity 컨텍스트를 얻고 `attach_current_thread()` 후 JNI 호출을 수행한다. 키와 값을 Java 문자열로 만들고 `ffiKvGet` 또는 `ffiKvSet` 메서드를 이름·시그니처로 찾는다.
+
+Kotlin의 `MainActivity`는 NativeActivity를 상속하며, `onCreate()`에서 SharedPreferences를 준비한다. 읽기는 `getString()`, 쓰기는 `putString(...).apply()`로 연결한다. Rust의 JSON 문자열이 Kotlin에서 게임 구조체로 변환되는 것은 아니다.
+
+JNI 호출 코드에는 여러 `unwrap()`이 있어 Activity 초기화 순서, 메서드 이름·시그니처, Java 예외가 호출 계약에 영향을 준다. JVM에 현재 스레드를 연결하는 것과 Android UI 스레드에서 실행하는 것은 다르다. 광고 표시 함수에서는 별도로 `runOnUiThread`를 사용한다.
+
+### iOS: C 문자열로 Rust와 Swift 연결
+
+Swift는 `@_cdecl("ffi_kv_get")`, `@_cdecl("ffi_kv_set")`으로 C ABI 심벌을 내보낸다. Rust는 `extern "C"`로 선언한 함수를 호출하며, 문자열을 `CString`과 `CStr`로 변환한다. Swift에서는 C 문자열을 String으로 바꾸고 UserDefaults에 접근한다.
+
+여기에는 현재 구현에서 보강이 필요한 소유권 문제가 남아 있다. Rust 입력은 `CString::into_raw()`로 넘기지만 대응하는 회수 코드가 없다. Swift가 입력을 복사해 사용한 뒤에도 Rust 할당을 자동으로 해제해 주지는 않는다.
+
+또한 Swift 읽기 함수는 지역 문자열을 NSString으로 변환한 뒤 `utf8String` 포인터를 반환한다. 호출 경계를 넘어 그 버퍼가 얼마나 오래 유효한지 명시적으로 보장하지 않으며, Rust 쪽은 반환 포인터의 null 여부를 확인하지 않고 `CStr::from_ptr()`를 사용한다. 따라서 연결 코드는 존재하지만 안전한 문자열 소유권 계약까지 완성했다고 소개하지 않는다.
+
+이를 보강한다면 입력은 호출 동안 빌려주고, 출력은 호출자가 제공한 버퍼에 복사하거나 명시적인 할당·해제 쌍을 두는 계약이 필요하다. 이는 개선 방향이며 이번 문서 작업에서 게임 소스를 수정한 내용은 아니다.
+
+### Web: WASM과 JavaScript의 저장소 연결
+
+`wasm_bindgen`으로 `ffi_kv_get/set`을 import하고 HTML에서 같은 이름의 JavaScript 함수를 제공한다. 함수는 localStorage의 `getItem/setItem`을 호출한다. 읽은 `JsValue`가 문자열이 아니면 Rust에서는 빈 문자열로 처리한다.
+
+HTML은 WASM 초기화 후 `start_app()`을 호출한다. Rust의 공통 App은 `#target` canvas를 사용하며, 게임 로직은 JavaScript 쪽 저장 API의 세부 구현을 알 필요가 없다.
+
+기록은 브라우저 저장소에 있으므로 다른 기기로 자동 이전되지 않는다. JavaScript 저장 호출에는 별도 try/catch가 없고 Rust import도 예외를 `Result`로 받는 계약이 아니므로, 저장소 접근 실패까지 빈 값으로 안전하게 처리한다고 설명할 수는 없다.
+
+## 외부 콜백은 채널을 통해 Bevy로 전달
+
+외부 코드가 직접 Bevy World를 조작하지 않도록 `CrossbeamEventSender<FfiEvent>`를 사용한다. `FfiPlugin`이 Crossbeam 이벤트를 등록하고 Sender를 복제해 전역 `OnceLock`에 보관한다.
+
+연결 확인 버튼의 흐름은 다음과 같다.
+
+1. Inspector에서 `Ffi::greet()`를 호출한다.
+2. Android는 Kotlin, iOS는 Swift, Web은 JavaScript 함수를 거친다.
+3. 호스트 함수가 Rust로 공개한 `ffi_greet_to_rust()`를 다시 호출한다.
+4. Rust 콜백이 Sender로 `FfiEvent::Greet`를 보낸다.
+5. Bevy Update의 이벤트 조건에 따라 로그 시스템이 실행된다.
+
+Desktop은 외부 언어 대신 별도 스레드에서 0.5초 뒤 같은 이벤트를 보내는 테스트 구현이다. 이를 통해 외부 또는 다른 스레드에서 돌아오는 응답의 진입점을 공통화했다. 저장 API 자체를 비동기로 만든 것은 아니며, 저장 읽기·쓰기는 호출한 위치에서 수행한다.
+
+전역 Sender는 한 번만 설정되고 재설정 실패를 무시한다. 콜백도 초기화 완료를 전제로 `SENDER.get().unwrap()`을 사용한다. 한 프로세스에서 Bevy App을 반복 생성하거나 초기화 전에 콜백을 받는 경우까지 수명 관리가 마련된 구조는 아니다.
+
+## 광고 종료 연결과 현재 활성 범위
+
+모바일 호스트에는 광고 표시·종료 콜백 구현이 있고, 종료 시 Rust의 `ffi_ad_dismiss()`가 `FfiEvent::AdDismiss`를 전달한다. Bevy Result 상태에서는 이를 받아 `ResultToGamePickingEvent`를 보내는 부활 연결이 마련돼 있다. 이 콜백은 보상 지급 검증이 아니라 전체 화면 광고가 닫힌 시점의 신호다.
+
+현재 일반 결과 화면의 광고 버튼 spawn 블록은 주석 상태다. 다만 Android Activity와 iOS FfiPlugin의 광고 초기화 경로, Inspector의 모바일 광고 표시 버튼은 남아 있다. 따라서 광고 관련 코드가 전부 제거됐다고도, 일반 게임 흐름에서 광고 부활을 활성화했다고도 설명하지 않는다.
+
+이벤트 소비에도 제한이 있다. `FfiEvent`는 Greet와 AdDismiss를 구분하지만 `ad_dismissed()`는 variant를 검사하지 않고 읽은 모든 이벤트를 부활 요청으로 바꾼다. Result 상태에서 연결 확인용 Greet가 들어와도 같은 요청이 발생할 수 있다. 채널을 통해 안전하게 전달하는 문제와 이벤트 종류를 올바르게 분기하는 문제는 별개다.
+
+## 작성 근거와 확인 범위 {/* #기여와-확인-근거 */}
+
+이 작업에서는 공통 Rust 코드와 Kotlin·Swift·JavaScript 사이의 호출 경계, 문자열 변환, 저장소 선택, 역방향 콜백 연결을 직접 구성했다. 게임 규칙을 복제하지 않고 플랫폼 서비스를 붙이는 경험을 보여 주되, 오류 처리와 iOS 메모리 계약이 완성된 범용 플랫폼 SDK로 확대하지 않는다.
+
+이번 문서화에서는 소스와 Git 이력을 확인했다. 저장 테스트 함수는 실제 앱 데이터 디렉터리에 접근하므로 실행하지 않았으며, 모바일 빌드·실기기 실행·브라우저 저장 테스트도 새로 수행하지 않았다.
+
+주요 소스는 `src/ffi/mod.rs`, `src/ffi/desktop.rs`, `src/ffi/android.rs`, `src/ffi/ios.rs`, `src/ffi/web.rs`, `src/plugins/ffi.rs`, `src/systems/ffi.rs`, `src/plugins/inspector.rs`다. 호스트 구현은 Android의 `MainActivity.kt`, `ios/xcode/ios-src/flappy.swift`, `web/index.html`에서 확인했다.
+
+관련 이력은 `2e87366`의 FFI 추가, `210eefb`의 Web, `cbc9943`의 Android, `bc26dd6`의 iOS, `62078f6`·`3cccb1c`의 greet 연결, `caefe4a`·`bf7a9c0`의 모바일 광고 연결이다. 모두 `lsy969999` 작성 이력으로 확인했다. 일반 결과 화면의 광고 비활성화는 `d26ec13` 이력과 현재 주석 블록을 함께 기준으로 삼았다.

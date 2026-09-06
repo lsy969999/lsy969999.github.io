@@ -1,0 +1,142 @@
+---
+id: hogwarts-worker-system
+project: hogwarts-legacy
+title: 범용 Worker와 Render Worker
+description: 레벨 로딩과 렌더 명령 기록을 목적에 맞는 Worker Pool로 분리한 멀티스레딩 구조
+slug: /hogwarts-legacy/worker-system
+order: 55
+featured: true
+tags:
+  - C++20
+  - Multithreading
+  - DirectX 11
+---
+
+# 범용 Worker와 Render Worker
+
+## 배경과 목표 {/* #도입-배경 */}
+
+대형 레벨의 리소스 등록과 해제를 Main Thread에서 수행하면 화면 전환 동안 응답이 멈춘다. 반면 Direct3D 11의 Render Command 기록은 일반 작업과 달리 Thread마다 독립적인 Device Context가 필요하다.
+
+작업 성격이 다른 두 문제를 하나의 Thread Pool에 억지로 넣지 않고 다음 두 Manager로 분리했다.
+
+- `CWorkerManager`: 일반 CPU 작업과 Level Load·Unload
+- `CRenderWorkerManager`: D3D11 Deferred Context를 이용한 Render Command 기록
+
+범용 Worker Manager를 직접 구현했고, Render Worker는 같은 기반 위에서 렌더링 담당자가 확장한 협업 영역이다.
+
+## 범용 Worker Pool
+
+Worker Pool은 고정된 Thread 배열과 하나의 Task Queue를 가진다. Task는 디버깅용 이름과 실행 함수로 구성한다.
+
+```cpp
+struct WorkerTask
+{
+    std::string taskName;
+    std::function<void()> function;
+};
+
+std::vector<Worker> m_Workers;
+std::list<WorkerTask> m_Tasks;
+std::mutex m_Mutex;
+std::condition_variable m_Condition;
+```
+
+초기화할 때 Worker 저장소 크기를 먼저 확정한 다음 Thread를 시작한다. Thread가 `m_Workers[i]`에 접근하는 동안 Vector 재할당으로 주소가 바뀌는 문제를 피하기 위한 순서다. Thread 수가 0으로 전달되면 최소 한 개를 생성한다.
+
+## Task 대기와 실행
+
+`Enqueue`는 Mutex 안에서 Task를 Queue에 추가하고 `notify_one()`으로 Worker 하나를 깨운다. Worker는 할 일이 없을 때 반복 Polling하지 않고 Condition Variable에서 Sleep한다.
+
+```cpp
+m_Condition.wait(lock, [this]
+{
+    return m_bStop || !m_Tasks.empty();
+});
+
+if (m_bStop && m_Tasks.empty())
+{
+    return;
+}
+
+task = std::move(m_Tasks.front());
+m_Tasks.pop_front();
+```
+
+Queue에서 Task를 꺼낸 뒤에는 Lock을 해제하고 함수를 실행한다. 긴 파일 I/O나 리소스 생성 중에도 다른 Thread가 Task를 추가하거나 다른 Worker가 다음 Task를 가져갈 수 있다.
+
+## 반환값이 필요한 작업
+
+Level Loader는 작업 완료 여부와 결과를 확인해야 하므로 `std::packaged_task`와 `std::future`를 감싼 API를 제공한다.
+
+```cpp
+auto future = game.WorkerEnqueueWithFuture(
+    "LOADING_HogwartsWorld",
+    []() -> HRESULT
+    {
+        return LoadLevelResources();
+    });
+```
+
+호출자는 매 프레임 Future 상태를 확인해 Loading 화면을 유지하고, 완료된 이후에만 Pending Level을 활성화한다. Terrain, Charles Rookwood, Ranrok Boss, Hogwarts World 등 각 Level의 Load와 Unload가 같은 실행 경로를 사용한다.
+
+반환값이 필요 없는 일반 Task는 `Enqueue`를 직접 사용한다. Task에서 발생한 예외가 Worker Thread 자체를 종료시키지 않도록 실행 경계를 `try/catch`로 감싸고 Task 이름과 함께 Debug Output에 남긴다. `packaged_task` 내부 예외는 Future를 통해 호출자에게 전달된다.
+
+## 종료 정책
+
+Shutdown에서는 Stop Flag를 설정하고 모든 Worker를 깨운 뒤 `join()`한다.
+
+```text
+Stop 요청
+   ↓
+notify_all
+   ↓
+Queue에 남은 Task 실행
+   ↓
+Stop && Queue Empty
+   ↓
+Thread 종료 → join
+```
+
+Stop이 요청됐더라도 Queue가 비기 전까지 기존 작업은 처리한다. 엔진이 파괴되는 동안 백그라운드 Thread가 Manager와 Resource에 접근하는 상황을 막기 위해 Worker의 종료와 Resource Manager의 Release 순서를 명시적으로 관리했다.
+
+## Render Worker를 분리한 이유
+
+D3D11 Immediate Context를 여러 Thread에서 동시에 사용하지 않고, Render Worker마다 하나의 Deferred Context를 생성했다.
+
+```text
+Render Worker 0 ── Deferred Context 0 ──┐
+Render Worker 1 ── Deferred Context 1 ──┼─▶ Command List
+Render Worker 2 ── Deferred Context 2 ──┘          │
+                                                   ▼
+                                     Main Immediate Context에서 실행
+```
+
+Render Task는 `ID3D11DeviceContext*`를 인자로 받아 Draw Command를 기록하고 `FinishCommandList`로 결과를 반환한다. Main Render Thread는 Future를 수집한 뒤 `ExecuteCommandList`로 실행한다. 이는 GPU 작업 자체를 여러 GPU에서 병렬 실행하는 기능이 아니라, CPU의 Render Command 기록 비용을 여러 Thread로 나누는 구조다.
+
+Map Mesh Instancing Renderer에서는 Shadow와 일반 Draw Command 기록에 이 경로를 사용한다. Worker 수가 없거나 Command List 생성이 실패할 경우를 별도 처리해 기본 렌더 경로를 유지한다.
+
+## Tracy와 ImGui 진단
+
+각 Worker Thread에 `Worker-0`, `Render-0` 같은 이름을 지정하고 Task 실행 구간을 Tracy Zone으로 기록했다. Task 이름도 Message로 전송해 Capture에서 어떤 Level Load나 Render Recording이 실행됐는지 확인할 수 있다.
+
+ImGui Worker View는 Mutex 안에서 현재 작업 이름과 Pending Queue를 Snapshot으로 복사한 다음 화면에 표시한다.
+
+- Worker별 `IDLE` 또는 현재 Task 이름
+- 대기 중인 Task 수
+- Pending Task 이름
+
+## 동시성 규칙
+
+Worker를 제공하는 것만으로 모든 엔진 API가 Thread-safe해지는 것은 아니다. Background Task에서 사용하는 Manager는 각자 Lock 정책을 가져야 하며, D3D11 Immediate Context나 GameObject Container처럼 Main Thread 전용인 상태는 직접 수정하지 않는다.
+
+Task Lambda가 생포인터나 참조를 Capture하면 실행 시점에 대상이 사라질 수 있다. 장기 참조에는 Handle이나 `shared_ptr`를 사용하고, Level 전환 시에는 Future 완료와 Manager 종료 순서를 확인한다.
+
+## 한계와 개선 방향 {/* #개선점 */}
+
+현재 Queue에는 우선순위, 취소 Token, Level별 Task Group이 없다. 또한 Stop 이후 `WorkerEnqueueWithFuture`가 호출되면 Enqueue 실패를 Future API가 명시적으로 전달하지 못해 대기 상태가 끝나지 않을 가능성이 있다. 실서비스 규모로 확장한다면 다음을 보강할 수 있다.
+
+- Enqueue 실패를 `optional<future>` 또는 즉시 Exception이 설정된 Future로 반환
+- Loading·Streaming·Background 작업별 우선순위
+- Level 전환 시 Task Group 취소와 Join
+- Task별 실행 시간과 Queue 대기 시간 통계

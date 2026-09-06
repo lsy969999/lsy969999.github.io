@@ -1,6 +1,29 @@
+import {readdirSync} from 'node:fs';
+import {join} from 'node:path';
+
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
+
+function containsMarkdown(directory: string): boolean {
+  try {
+    return readdirSync(directory, {withFileTypes: true}).some((entry) => {
+      const path = join(directory, entry.name);
+      return entry.isDirectory()
+        ? containsMarkdown(path)
+        : /\.mdx?$/.test(entry.name);
+    });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+const projectDocsExist = containsMarkdown(join(__dirname, 'projects'));
+const archiveDocsExist = containsMarkdown(join(__dirname, 'archive'));
 
 const config: Config = {
   title: 'Limits1214 | Portfolio',
@@ -26,13 +49,25 @@ const config: Config = {
 
   future: {
     v4: true,
+    faster: {
+      rspackPersistentCache: false,
+    },
   },
 
   presets: [
     [
       'classic',
       {
-        docs: false,
+        docs: projectDocsExist
+          ? {
+              path: 'projects',
+              routeBasePath: 'projects',
+              sidebarPath: false,
+              breadcrumbs: false,
+              showLastUpdateAuthor: false,
+              showLastUpdateTime: false,
+            }
+          : false,
         blog: false,
         theme: {
           customCss: './src/css/custom.css',
@@ -41,11 +76,33 @@ const config: Config = {
     ],
   ],
 
+  plugins: [
+    './portfolio-metadata-plugin.mjs',
+    archiveDocsExist && [
+      '@docusaurus/plugin-content-docs',
+      {
+        id: 'archive',
+        path: 'archive',
+        routeBasePath: 'archive',
+        sidebarPath: false,
+        breadcrumbs: false,
+        showLastUpdateAuthor: false,
+        showLastUpdateTime: false,
+      },
+    ],
+  ],
+
   themeConfig: {
     navbar: {
       title: 'Limits1214',
       items: [
         {to: '/', label: 'Home', position: 'left'},
+        {to: '/projects', label: 'Projects', position: 'left'},
+        {to: '/archive', label: 'Archive', position: 'left'},
+        ...(archiveDocsExist
+          ? [{to: '/archive/tags', label: 'Tags', position: 'left' as const}]
+          : []),
+        {to: '/about', label: 'About', position: 'left'},
         {
           href: 'https://github.com/limits1214',
           label: 'GitHub',

@@ -1,0 +1,129 @@
+---
+id: lucky-ball-bevy-ecs-shared-app
+project: lucky-ball
+title: Bevy ECS 기반 추첨 시뮬레이터와 공통 앱 구조
+description: 3D 물리 추첨 장치를 Plugin·Component·Resource·Event로 구성하고 플랫폼별 진입점에서 공통 앱을 재사용한 구조
+slug: /lucky-ball/bevy-ecs-shared-app
+order: 10
+featured: true
+tags:
+  - Rust
+  - Bevy
+  - ECS
+  - Architecture
+---
+
+# Bevy ECS 기반 추첨 시뮬레이터와 공통 앱 구조
+
+## 물리 장치가 움직이는 번호 추첨 앱
+
+Lucky Ball은 번호가 적힌 공을 3D 장치 안에 투입하고, 혼합·포착·배출을 반복해 결과를 보여주는 개인 프로젝트다. 숫자 목록을 바로 출력하는 대신, 공과 장치의 물리 상태 및 센서 감지를 추첨 진행과 연결했다.
+
+Rust와 Bevy를 사용해 게임 로직과 UI를 구성하고 Rapier3D를 물리 처리에 연결했다. 엔진의 렌더러·ECS·물리 라이브러리를 직접 구현한 프로젝트는 아니다. 구현의 중심은 이 기능들을 추첨 장치, 진행 이벤트, 플랫폼 서비스로 조합한 부분이다.
+
+현재 소스의 의존성 선언은 Bevy 0.15.1, bevy_rapier3d 0.28.0이다. README는 초기 개발 기간을 2024년 10월 1~19일로 기록하며, 이후 커밋에는 12월의 Bevy 업그레이드와 장치 생성 구조 변경, 2025년 1월의 렌더·물리 설정 조정이 남아 있다. 초기 제작과 후속 개선을 구분해 설명한다.
+
+## 플랫폼 진입점과 공통 AppPlugin
+
+루트 `lucky_ball` crate가 `AppPlugin`을 공개하고, Cargo workspace의 `android`, `ios`, `web` crate가 이를 사용한다. Desktop은 루트의 `src/main.rs`에서 실행한다.
+
+| 진입점 | 플랫폼별 준비 | 공통 연결 |
+| --- | --- | --- |
+| `src/main.rs` | 기본 Bevy 앱 생성 | `AppPlugin` 추가 |
+| `android/src/lib.rs` | 전체 화면 창, 모바일 Winit 설정, cdylib 구성 | `AppPlugin` 추가 |
+| `ios/src/lib.rs` | 전체 화면 창, 모바일 Winit 설정, staticlib 구성 | `AppPlugin` 추가 |
+| `web/src/lib.rs` | wasm-bindgen 진입 함수, `#target` canvas 연결, 부모 크기 맞춤 | `AppPlugin` 추가 |
+
+각 진입점은 `DefaultPlugins`를 구성한 뒤 공통 플러그인을 추가한다. Web은 에셋 메타 검사도 별도로 설정한다. 게임 시스템을 플랫폼마다 복사하기보다 창·실행 환경의 차이를 바깥에 두는 구조다.
+
+다만 모든 플랫폼 차이가 진입점에만 모인 것은 아니다. 광고 호출 등 일부 게임 시스템에도 조건부 컴파일 분기가 남아 있다. 이 문서의 확인 범위는 공통 코드와 플랫폼 연결 구성이며, 현재 소스를 모든 기기에서 다시 빌드하거나 스토어 배포를 검증한 결과는 아니다.
+
+## 책임별 플러그인 조립
+
+`AppPlugin`은 외부 기능과 자체 기능을 함께 조립하는 시작점이다. 외부 기능으로 카메라 조작, Tweening, Rapier 물리를 추가하고, 자체 기능은 다음 네 플러그인으로 나눈다.
+
+| 플러그인 | 책임 |
+| --- | --- |
+| `AssetsPlugin` | 모델·폰트·이미지 로딩 상태 등록 |
+| `GamePlugin` | 장치 생성, 물리 상태 조작, 센서와 추첨 단계 처리 |
+| `MyUiPlugin` | 메뉴·규칙 선택·결과 화면과 버튼 이벤트 처리 |
+| `FfiPlugin` | 플랫폼 이벤트 채널 준비와 locale 초기화 |
+
+공용 모듈 안에서도 `component`, `resource`, `event`, `system` 파일을 구분한다. 기능의 단위를 나누되, 모든 동작을 상속 계층이나 하나의 게임 오브젝트 클래스에 넣지 않고 ECS의 데이터와 시스템으로 표현했다.
+
+물리는 `RapierPhysicsPlugin`을 기본 구성으로 등록한다. 과거 고정 timestep·substep 설정은 주석으로 남아 있으므로, 현재 공통 앱이 자체 고정 물리 루프를 적극적으로 설정한다고 설명하지 않는다.
+
+## 로딩과 게임 진입의 경계
+
+앱 상태는 `MyStates::Load(Loading::Loading)`, `Load(Loading::Gen)`, `Game`으로 구분한다.
+
+```text
+Load(Loading)
+  → MyAsstes 컬렉션 로딩
+  → Load(Gen)
+  → asset_gen에서 Game 전환 요청
+  → Game 진입 시 장치와 메인 UI 생성
+```
+
+`MyAsstes`는 glTF 추첨 장치, 폰트, 버튼 이미지의 Handle을 가진 `AssetCollection`이자 Resource다. `bevy_asset_loader`에 컬렉션을 등록해 로딩 후 다음 상태로 넘어가도록 연결했다.
+
+이름이 `Gen`이지만 현재 `asset_gen()`은 리소스를 추가 생성하지 않고 `NextState`를 Game으로 설정한다. 실제 장치 Scene 생성은 Game 진입 때 수행한다. 로딩 UI는 Loading 상태에서 표시·갱신하고 Game 진입 때 제거한다.
+
+이는 에셋 로딩 전 장치 생성 경로가 실행되지 않도록 나누는 구성이다. 별도의 로딩 실패 상태나 재시도 화면까지 마련된 것으로 설명하지 않는다.
+
+## Component는 개별 역할, Resource는 추첨 설정
+
+장치와 공의 역할은 마커 또는 데이터를 가진 Component로 구분한다. 예를 들어 `Ball(u8)`은 공 번호를 보관하고, `BallMixer`, `BallDrawStick`, `BallCatchSensor`, `BallReleaseSensor`는 장치별 시스템이 조회할 대상을 표시한다.
+
+공이 포착됐거나 선택된 상태에는 `Catched`, `Picked`, `PickedStatic` 같은 마커를 사용한다. 재혼합 관련 Timer 역시 Component로 두어 필요한 시점에 엔티티를 만들고 완료 후 제거한다.
+
+한 번의 추첨 전체가 공유하는 정보는 `GameConfig` Resource에 둔다. 실행 여부, 포착·센서 활성 플래그, 추첨 대상 공 목록, 뽑을 개수, 선택된 번호 목록 등이 여기에 포함된다. 개별 공의 물리 데이터와 전체 추첨 규칙을 다른 범위로 관리하는 구성이다.
+
+단, 진행 상태가 모두 하나의 enum으로 제한되는 구조는 아니다. 앱의 큰 상태는 Bevy States로 나누고, 추첨 내부는 여러 bool·마커·이벤트 ID를 함께 사용한다. 이후 유지보수에서는 이 조합이 허용하는 상태와 초기화 시점을 확인해야 한다.
+
+## UI 요청과 장치 완료를 이벤트로 연결하기
+
+UI의 실행 버튼 처리기는 버튼을 숨기고 `GameRunEvent`를 보낸다. 게임 시스템 `er_game_run()`은 이를 읽어 실행 플래그를 설정하고 첫 단계 이벤트를 보낸다. UI가 스틱 Transform이나 공의 강체를 직접 움직이는 방식은 아니다.
+
+추첨 단계는 `GameStepStartEvent`, `GameStepFinishEvent`로 연결한다. 이벤트에는 `u64` 단계 ID와 선택적인 Int·Float 데이터가 있으며, `game_run_step_finish()`가 완료 ID를 해석해 다음 시작 이벤트를 보낸다.
+
+예를 들어 출구 덮개 열림 완료는 풀 내부 공 수 감지를 활성화한다. 풀이 비었다는 완료 이벤트를 받으면 덮개 닫기를 시작하고, 닫힘 완료 후 믹서 회전과 스틱 내리기를 요청한다. 단순히 정해진 시간마다 다음 동작을 호출하는 것뿐 아니라 센서 결과를 단계 전환에 사용한다.
+
+Tween 완료도 그대로 UI에 넘기지 않는다. `tcb_to_step_convert()`가 `TweenCompleted.user_data`를 게임 단계 완료 이벤트로 바꾼다. 추첨 종료 시에는 `GameEndEvent`를 보내고 UI가 선택된 번호를 읽어 결과 화면을 구성한다.
+
+각 단계의 물리 처리와 재혼합 조건은 별도 문서에서 다룬다. 여기서 중요한 경계는 사용자 요청·장치 동작·완료 판정·화면 전환이 이벤트를 통해 연결된다는 점이다.
+
+## 시스템 실행 조건과 장면 후처리
+
+대부분의 게임·메뉴 시스템은 `Update`에 등록하되 `in_state(MyStates::Game)` 조건을 사용한다. 공 제거 이후 강체 변경과 생성처럼 순서가 필요한 일부 시스템에는 `.after(er_ball_clear)`를 지정했다.
+
+시스템을 튜플에 나열한 순서를 그대로 실행 순서로 간주하면 안 된다. 현재 코드는 전체 진행을 하나의 `.chain()`으로 고정하지 않고 이벤트와 일부 명시적 순서 조건을 조합한다. 같은 프레임의 처리 순서가 반드시 필요한 작업은 별도 의존성으로 표현할 경계다.
+
+Game 진입 시 현재 등록된 장치 생성 함수는 이름과 달리 실제 실행 경로인 `test_new_setup()`이다. glTF의 이름 있는 Scene을 생성하고 센서를 별도로 배치한다. 이후 `new_setup_added()`가 `Added<Name>` 쿼리로 장면 엔티티를 찾아 이름에 따라 물리 역할을 부착한다.
+
+모델을 읽는 단계와 게임용 컴포넌트를 붙이는 단계를 구분한 방식이다. 대신 노드 이름과 계층은 코드와 리소스 사이의 계약이 된다. 기존 `spawn_setup()`도 파일에 남아 있지만 현재 Game 진입에 등록된 함수와 구분해야 한다.
+
+## 플랫폼 서비스와 디버그 기능의 경계
+
+`ffi/platform`은 target 조건에 따라 Desktop·Android·iOS·WASM 구현을 선택한다. 공통 trait에는 키값 저장·조회, 앱 종료·초기화, locale·시간 조회, 광고 관련 인터페이스가 있다. 구체적인 JNI·Swift/C·브라우저 호출과 저장 방식은 플랫폼 문서에서 따로 설명할 수 있다.
+
+`FfiPlugin`은 Crossbeam 이벤트 채널의 sender를 보관해 외부 콜백을 받을 통로를 준비한다. 다만 초기화 완료 후 광고를 시작하는 일부 시스템 등록은 현재 주석 처리돼 있다. 인터페이스나 콜백 enum이 존재한다는 사실을 모든 광고 흐름이 활성화돼 있다는 의미로 사용하지 않는다.
+
+`inspector` feature를 켜면 Inspector UI, 프레임·엔티티 수 진단, Rapier 디버그 렌더를 추가한다. 디버그 버튼은 공 생성·제거, 스틱 이동, 포착·배출, 게임 실행 등을 실제 게임 이벤트로 요청한다. 디버그용 별도 동작을 복제하기보다 같은 처리기를 시험할 수 있게 한 구성이다.
+
+루트 crate는 inspector를 기본 feature로 설정하지만 플랫폼 crate들은 공통 crate 의존성에 `default-features = false`를 지정한다. 빌드 설정에서 디버그 기능 포함 여부를 나누는 근거이며, 전체 플랫폼의 성능 향상을 측정한 결과를 의미하지는 않는다.
+
+## 결과와 확인 범위 {/* #구현-결과와-본인-작업-근거 */}
+
+추첨 장치의 물리 동작, UI, 리소스 로딩, 플랫폼 서비스를 공통 Bevy 앱에 구성했다. 플랫폼별 실행 설정은 바깥으로 분리하고, 게임 내부에서는 개별 역할 Component·전체 설정 Resource·단계 Event를 조합해 물리 장치의 진행을 표현했다.
+
+현재 저장소 HEAD에는 총 56개 커밋이 있으며 작성자 표기는 `lsy969999` 50개, `limits1214` 6개다. 이는 코드 규모나 기여도 비율이 아니라 작업 이력을 확인한 수치다. 기술 설명은 README뿐 아니라 다음 변경과 현재 실행 등록을 함께 확인했다.
+
+| 커밋 | 확인한 작업 |
+| --- | --- |
+| `0a3f7cc` | glTF 장치에 물리 충돌 연결 |
+| `3d71ac6` | 출구 덮개와 단계 기반 추첨 흐름 |
+| `57d71c3` | Bevy 0.15 업그레이드와 게임·UI API 변경 |
+| `9cd0c56` | 장면 생성·후처리 경로 변경 |
+
+주요 근거는 `Cargo.toml`, `src/lib.rs`, `src/app/`, `src/asset/`, `src/game/{mod,component,resource,event,system}.rs`, `src/ui/{mod,system}.rs`, `src/ffi/`, `src/inspector/mod.rs`, 각 플랫폼의 `Cargo.toml`과 `src/lib.rs`다. 이번 작업은 소스·커밋 분석과 문서 작성이며, 게임 소스 수정이나 각 플랫폼의 런타임 검증은 수행하지 않았다.

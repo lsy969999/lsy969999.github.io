@@ -1,0 +1,91 @@
+---
+id: hogwarts-dependency-management
+project: hogwarts-legacy
+title: vcpkg와 서드파티 의존성 관리
+description: 패키지 매니저와 수동 SDK를 함께 운용하며 빌드 구성을 재현한 방법
+slug: /hogwarts-legacy/dependency-management
+order: 20
+featured: true
+tags:
+  - vcpkg
+  - C++
+  - Build
+---
+
+# vcpkg와 서드파티 의존성 관리
+
+## 두 종류의 의존성
+
+모든 라이브러리를 한 방식으로 관리할 수는 없었다. 공개 패키지로 안정적으로 제공되는 라이브러리는 vcpkg Manifest로 관리하고, 별도 SDK·바이너리·빌드 설정이 필요한 미들웨어는 `ThirdParty` 아래에서 직접 관리했다.
+
+| 구분 | 라이브러리 | 사용 목적 |
+| --- | --- | --- |
+| vcpkg | Assimp | FBX 등 모델 Import |
+| vcpkg | DirectXTex, DirectXTK | 텍스처 처리와 DirectX 보조 기능 |
+| vcpkg | Lua 5.4.8, sol2 | 런타임 스크립팅과 C++ Binding |
+| vcpkg | magic_enum | Enum 이름·값 Reflection 보조 |
+| vcpkg | Recast Navigation | Navigation Mesh와 경로 탐색 |
+| vcpkg | meshoptimizer | Mesh 데이터 최적화 |
+| 수동 SDK | PhysX 5.6.1 | Rigid Body, CCT, Query, Joint, Ragdoll |
+| 수동 SDK | NvCloth 1.1.6 | 망토 Cloth Simulation |
+| 수동 SDK | FMOD | BGM·SFX·3D Sound |
+| 수동 SDK | HBAO+, FidelityFX FSR2 | Ambient Occlusion과 Upscaling |
+| 소스 포함 | Dear ImGui, ImGuizmo, Node Editor | 런타임 디버그·저작 도구 |
+| 소스 포함 | Tracy 0.13.1 | CPU Frame Profiler |
+| Header/Source | nlohmann/json, tweeny | JSON 직렬화와 Tween |
+
+## vcpkg Manifest 고정
+
+`vcpkg.json`에는 필요한 패키지만 선언하고 `builtin-baseline`을 고정했다. 팀원이 서로 다른 시점의 Port를 받아 API나 바이너리가 달라지는 상황을 줄이기 위한 선택이었다. Lua는 디버거 호환성과 Binding 기준을 맞추기 위해 5.4.8로 명시했다.
+
+```json title="vcpkg.json"
+{
+  "builtin-baseline": "fc349a7b35348173d4d24621ae04ad80e2375957",
+  "dependencies": [
+    "assimp",
+    "directxtex",
+    "directxtk",
+    "lua",
+    "magic-enum",
+    "recastnavigation",
+    "sol2",
+    "meshoptimizer"
+  ],
+  "overrides": [
+    { "name": "lua", "version": "5.4.8" }
+  ]
+}
+```
+
+Engine와 Client 프로젝트에서 `VcpkgEnableManifest`를 활성화했기 때문에, 개발자가 개별 Include/Library 경로를 매번 추가하지 않아도 Manifest를 기준으로 복원할 수 있다.
+
+## 수동 SDK를 분리한 이유
+
+PhysX와 NvCloth처럼 직접 빌드한 바이너리 구성이 필요한 라이브러리, FMOD처럼 배포 형태가 정해진 SDK는 vcpkg 대신 버전 디렉터리를 명시했다.
+
+```text
+ThirdParty/
+├─ physx-5.6.1
+├─ NvCloth_1.1.6
+├─ fmod_2_03_12
+├─ HBAOPlus-3.1.0
+├─ fsr2_2
+├─ imgui-1.83
+├─ ImGuizmo-1.83
+├─ imgui-node-editor-0.9.3
+└─ tracy-0.13.1
+```
+
+프로젝트 파일은 공통 Include 경로와 Debug/Release별 Library 경로를 구분하고, 빌드 후 배치 파일은 실행에 필요한 DLL만 `Client/Bin`으로 복사한다. 링크 설정과 런타임 배포를 한곳에서 관리해 “컴파일은 되지만 실행할 때 DLL을 찾지 못하는” 문제를 줄였다.
+
+## DLL 구성 검증
+
+DLL 기반 엔진에서는 Debug/Release 또는 서로 다른 빌드의 Engine DLL과 Client EXE가 섞이면 STL 객체의 레이아웃·런타임 힙 경계가 어긋날 수 있다. 실제로 종료 시점의 문자열 소멸에서 메모리 손상처럼 보이는 문제가 있었고, 전체 재빌드 후 사라지는 것을 확인했다.
+
+이후 Engine DLL이 자신의 빌드 구성을 외부에 노출하고 Client 시작 시 기대 구성과 비교하도록 방어 코드를 추가했다. 불일치하면 초기화 초기에 메시지를 표시하고 종료하여, 한참 뒤 엉뚱한 Manager의 소멸자에서 크래시가 나는 상황을 앞당겨 진단하도록 했다.
+
+당시 크래시의 관찰과 가설, 정수 서명을 사용하는 이유와 검출 한계는 [DLL 빌드 구성 조기 검증](/projects/hogwarts-legacy/engine-build-compatibility)에서 설명한다. 재빌드 후 재현이 사라진 사실만으로 DLL 혼용을 최초 손상 원인으로 확정하지는 않았다.
+
+## 한계와 개선 방향 {/* #판단과-한계 */}
+
+Manifest와 수동 SDK의 혼합은 이 프로젝트 조건에서 현실적인 선택이었다. 다만 수동 SDK 갱신은 프로젝트 파일과 복사 스크립트를 함께 수정해야 한다. 이후에는 공통 Property Sheet 또는 CMake Preset으로 Include, Link, Runtime Copy 규칙을 한 단계 더 중앙화할 수 있다.

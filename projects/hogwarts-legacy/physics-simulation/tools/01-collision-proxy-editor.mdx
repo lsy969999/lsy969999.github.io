@@ -1,0 +1,165 @@
+---
+id: hogwarts-collision-proxy-editor
+project: hogwarts-legacy
+title: 런타임 충돌 배치 에디터와 데이터 기반 맵 충돌 구성
+description: Actor·Shape 계층, 로컬 좌표 기즈모, Cooked 형상 미리보기와 JSON 로딩을 연결해 맵 충돌을 배치하는 도구
+slug: /hogwarts-legacy/collision-proxy-editor
+order: 210
+featured: true
+tags:
+  - PhysX
+  - ImGui
+  - Editor
+  - JSON
+---
+
+# 런타임 충돌 배치 에디터와 데이터 기반 맵 충돌 구성
+
+## 목표와 담당 범위
+
+맵의 벽·계단·발판마다 C++에서 Collider의 위치와 크기를 수정하면 작은 배치 변경도 빌드와 실행을 반복해야 한다. 화면에 보이는 모델과 실제 충돌 형상이 다른 경우에는 숫자만으로 어긋난 부분을 찾기도 어렵다.
+
+게임 화면에서 충돌용 Actor와 Shape를 배치하고, JSON으로 저장한 데이터를 레벨에서 다시 생성하는 `CPhysXCollisionProxyEditor`를 구현·보강했다. 충돌 판정 알고리즘과 별개로 팀원이 맵의 충돌 환경을 구성하는 도구를 마련한 작업이다.
+
+[PhysX 충돌 필터와 Query 파이프라인](/projects/hogwarts-legacy/physx-collision-query)은 실행 중 판정을 설명한다. 이 문서는 배치 데이터, 조작, 미리보기와 런타임 생성의 연결에 집중한다. ImGui·ImGuizmo·PhysX 자체를 구현한 것으로 포함하지 않는다.
+
+**현재 소스 상태:** 공통 `CDbgLineRender::Render()`가 첫 문장에서 반환하도록 되어 있어, 이 렌더러를 사용하는 Wire·Solid 표시는 현재 비활성 상태다. 아래는 구현된 도구의 구조이며, 현재 체크아웃에서 시각적 미리보기가 정상 출력된다는 실행 결과를 뜻하지 않는다. 이번 문서화에서는 엔진 코드를 변경하지 않았다.
+
+## 편집 데이터와 실제 물리 객체를 분리
+
+에디터가 보관하는 것은 PhysX 포인터가 아니라 Actor·Shape 설정 값이다. 이를 디버그 형상으로 그리는 것과 실제 물리 시뮬레이션에 참여시키는 것을 분리했다.
+
+```text
+Collision Proxy GUI
+  → Actor / Shape 편집 데이터
+       ├─ DbgLineRender: 배치 형상 표시
+       ├─ Build PhysX Preview: 임시 GameObject·RigidBody·Collider 생성
+       └─ Save: CollisionProxies JSON
+                    ↓
+          레벨의 CreateCollisionProxyObjectsFromFile
+                    ↓
+          GameObject Layer에 런타임 충돌 객체 생성
+```
+
+기즈모 조작이 바로 시뮬레이션 객체를 이동시키는 구조는 아니다. `Build PhysX Preview`로 생성한 미리보기는 생성 당시 데이터의 스냅샷이므로, 편집 후 실제 충돌을 다시 시험하려면 재생성이 필요하다. GUI에도 `rebuild after edits`를 표시한다.
+
+## Actor 아래에 여러 Shape를 배치하는 모델
+
+파일은 버전과 Actor 목록을 가지고, 각 Actor는 Shape 목록을 가진다. 한 물리 Body를 여러 단순 형상으로 구성하는 경우를 표현할 수 있다.
+
+| 계층 | 주요 데이터 |
+| --- | --- |
+| File | 버전 3, Actor 목록 |
+| Actor | ID·이름·Prototype Tag, Static/Dynamic/Kinematic, 월드 위치·회전, 질량·중력·활성 상태 |
+| Shape | ID·이름·종류, 로컬 위치·회전, 크기·반경·메시 Scale, Cooked 경로, Layer·Mask·Trigger·참여 여부 |
+
+Actor에는 Scale을 두지 않았다. Shape의 크기를 수정하며, Box는 전체 Size, Sphere는 Radius, Capsule은 Radius와 Half Height, Mesh는 XYZ Scale로 표현한다. Box 생성 시에는 Size의 절반을 PhysX Half Extents로 변환한다.
+
+에디터의 Actor·Shape ID는 선택과 데이터 식별용이다. 생성된 게임 객체의 Generation Handle이나 충돌 결과의 Shape SubIndex와 같은 값이 아니다. 현재 기본 Proxy 생성 코드는 Shape ID를 Collider 컴포넌트 태그에 사용하지만, 이를 `iShapeSubIndex`로 전달하지는 않는다.
+
+## 기즈모 조작을 로컬 좌표로 되돌리기
+
+GUI는 이동·회전·크기 조작과 Local/World 모드를 제공한다. 회전은 Inspector에서 도 단위 Euler로 입력하고 저장 데이터에는 Quaternion을 사용한다. Shape Scale 기즈모는 Local 모드로 동작하며, Actor를 선택한 상태에서는 Scale 조작을 허용하지 않는다.
+
+Shape는 부모 Actor의 변환을 포함한 월드 행렬로 기즈모에 전달한다. 조작 결과를 그대로 로컬 위치에 저장하면 부모 회전이 중복 적용되므로, 결과에 Actor 역행렬을 곱해 로컬 값으로 복원한다.
+
+```text
+Shape World = Shape 크기 × Shape Local Pose × Actor World Pose
+편집 후 Local = 조작된 World × Inverse(Actor World Pose)
+```
+
+행렬 분해 결과의 위치·회전·크기를 Shape 필드에 반영한다. Sphere는 비균일 기즈모 크기를 구의 반경으로 환산하며, Capsule도 반경과 반높이에 맞게 해석한다. 임의의 타원체를 만드는 기능은 아니다.
+
+`Move To Actor`도 같은 원리를 사용한다. Shape의 월드 Pose를 보존한 채 새 Actor 기준의 로컬 Pose를 계산하고 목록을 옮겨, 묶음을 바꿔도 화면상의 위치가 튀지 않도록 했다.
+
+## 배치 편의 기능과 되돌리기
+
+`Create Shape at Camera`는 카메라 전방 5 지점에 형상을 만든다. 선택된 Actor가 없으면 Actor도 생성한다. Cylinder·Octagonal Prism·Wedge 버튼은 해당 단위 Cooked Convex 경로를 지정하는 프리셋이며, 버튼 자체가 메시를 Cooking하는 것은 아니다.
+
+일반 Snap은 이동·회전·크기 변경을 지정 간격에 맞춘다. Surface Snap은 선택한 Shape를 다른 편집 충돌의 표면에 붙이는 기능이다. 표면 법선 방향으로 선택 형상의 지지 거리와 Gap만큼 띄워, 중심만 표면에 놓아 절반이 파묻히는 문제를 줄인다. 회전을 자동으로 표면에 정렬하는 기능은 아니다.
+
+복제·삭제·Shape 이동·Surface Snap 등은 편집 데이터와 선택 ID의 Snapshot을 기록한다. 기즈모는 드래그 시작 전 상태를 저장하고 드래그가 끝날 때 한 번의 Undo로 묶는다. Undo 이력 상한은 64개다.
+
+모든 GUI 변경이 Undo 대상인 것은 아니다. 현재 Inspector의 직접 숫자 입력과 Checkbox 변경은 같은 Snapshot 기록 경로로 통일되어 있지 않다. 전체 데이터를 복사하는 방식이므로 대규모 배치에서는 이력 메모리 비용도 고려해야 한다.
+
+## Cooked 메시를 실제 형상으로 확인
+
+Convex·Triangle Mesh는 경로 문자열만 저장하더라도, 배치 화면에서는 어떤 형태인지 보여야 한다. Cooked 리소스를 열어 PhysX 메시의 정점과 인덱스를 추출하고 공통 디버그 렌더러에 전달한다.
+
+Convex는 Polygon을 삼각형 팬으로 변환하고, Triangle Mesh는 16비트·32비트 인덱스를 32비트 배열로 통일한다. 추출 데이터는 형상 종류와 정규화 경로를 Key로 캐시한다. 경로 변경이나 `Refresh Cooked Preview`에서 캐시를 비운다.
+
+파일을 읽지 못했을 때는 Box 표시로 대체하는 경로도 있다. 따라서 화면에 상자가 보인다는 사실만으로 Cooked 리소스가 정상 로드됐다고 판단하면 안 된다. 이 디버그 메시 캐시는 PhysX 충돌 객체를 생성하는 것과도 별개다.
+
+형상 표시는 [공통 디버그 시각화 렌더러](/projects/hogwarts-legacy/debug-geometry-renderer)를 사용한다. Wire·Solid·Solid+Wire, Depth 검사, Solid Alpha와 Depth Bias를 선택할 수 있다. 비활성은 회색, 선택은 노란색, Trigger는 분홍색, 일반 Shape는 청록색으로 구분한다.
+
+### 선택 정확도의 한계
+
+일반 마우스 선택은 Shape 치수로 구성한 OBB와 Ray를 비교한다. 모든 Convex·Triangle Mesh의 실제 삼각형을 정밀 Picking하는 방식은 아니어서, 원점이나 크기가 단위 형상과 다른 메시에서는 표시와 선택 범위가 어긋날 수 있다.
+
+Surface Snap은 다른 경로다. Sphere는 구 교차, Mesh는 경계 검사 후 캐시한 삼각형 교차를 사용하고, 메시 교차 결과가 없으면 경계 결과로 대체할 수 있다. Capsule 등에도 경계 근사가 사용되므로 모든 표면에 대한 정확한 접촉 계산을 보장하지 않는다. 대상도 에디터의 충돌 목록이지 임의의 렌더 메시 전체가 아니다.
+
+## Layer 이름과 참여 여부를 GUI로 표현
+
+Shape Inspector는 Layer, Simulation Mask, Query Mask와 함께 Trigger·Simulation·Scene Query·Enabled를 제공한다. Client가 등록한 Layer 이름으로 선택하고, 필요하면 Advanced Filter Values에서 16진수 값을 직접 확인한다.
+
+Actor의 GameObject Layer와 Shape의 Collision Layer는 다르다. 전자는 객체 관리용 그룹이고 후자는 물리 필터 비트다. 또한 일반 Raycast·Sweep의 검색 Mask는 호출자가 정하므로, 이 화면의 Shape Query Mask를 바꾼다고 모든 Query의 검색 정책이 바뀌지는 않는다.
+
+현재 도구는 Triangle Mesh의 Trigger 선택을 막고, Dynamic Actor와의 조합을 경고한다. 실제 Preview 생성과 Proxy 생성에서도 해당 조합을 거부한다. 이는 이 프로젝트에서 지원하는 구성 제약이며, 파일 입력 전체를 검증하는 범용 물리 데이터 Validator는 아니다.
+
+## 실제 물리 미리보기와 기존 맵 충돌의 중복 방지
+
+`Build PhysX Preview`는 기존 Preview 제거를 예약한 뒤 활성 Actor·Shape와 Cooked 경로 등을 확인한다. 통과하면 현재 데이터를 `__ENGINE_PX_COLLISION_PREVIEW` 레이어의 객체로 생성하고 Handle 목록을 보관한다. 제거는 Handle을 다시 조회해 PendingDestroy로 예약한다.
+
+이미 레벨에 로드된 충돌과 Preview가 겹치면 시험 결과를 해석하기 어렵다. 그래서 `Loaded Collision Layer`에 대상 레이어를 지정하고 `Loaded Collision OFF/ON`으로 기존 Proxy의 충돌 참여를 잠시 끄고 복구할 수 있게 했다.
+
+이 기능은 해당 레이어의 모든 객체를 지우거나 모든 Collider를 일괄 조작하지 않는다. `CPhysXCollisionProxyObject`로 조회되는 객체만 대상으로 하며, ON에서는 Shape별로 저장해 둔 Simulation·Query 상태를 복원한다. 원래 Query 전용이었던 Shape를 무조건 Simulation까지 켜는 방식이 아니다.
+
+## 저장과 레벨 로딩의 경계
+
+Save는 `CollisionProxies` 루트 이름으로 버전 3 데이터를 직렬화한다. 파일은 `./Resources/json/Collisions/` 아래에 생성하고 입력한 파일명의 경로 구분자·금지 문자 등을 치환한다. Save·Load·Clear에는 확인 팝업과 결과 메시지를 제공한다.
+
+Load는 임시 데이터에 역직렬화하고 버전을 검사한 다음 Quaternion·최소 크기·질량 등을 보정한다. 성공한 뒤 편집 데이터를 교체하고 Preview·선택·Undo/Redo 상태를 정리한다. JSON 로드 실패 전에 기존 목록부터 비우지는 않는다. 공통 파일 저장 구조는 [직렬화 프레임워크](/projects/hogwarts-legacy/serialization-framework)에 설명했다.
+
+런타임은 같은 파일을 `CreateCollisionProxyObjectsFromFile`로 읽는다. 찰스 룩우드 레벨의 실제 호출은 다음 형태다.
+
+```cpp
+auto handles = CGameInstance::Get()
+    .GetPhysXManager()
+    ->CreateCollisionProxyObjectsFromFile(
+        "Level_CharlesRookwood",
+        "00_MapCollision");
+
+if (handles.empty())
+{
+    return E_FAIL;
+}
+```
+
+Manager는 활성 Actor마다 게임 객체를 만들고, Shape 종류에 맞는 Collider를 RigidBody에 연결한다. 중간 생성이 실패하면 앞서 생성한 객체에도 제거를 예약하고 빈 결과를 반환한다. 실제 파괴 시점까지 원자적으로 되돌리는 트랜잭션은 아니다.
+
+기본 Proxy 자체는 렌더 모델을 그리지 않는다. 맵의 시각 모델과 충돌 배치를 분리한 구조이므로, 맵 모델을 이동·확대해도 저장된 충돌 위치가 자동으로 따라 바뀌지는 않는다.
+
+## Trigger 동작을 Prototype으로 확장
+
+Actor의 `Prototype Tag`가 비어 있으면 엔진 기본 Proxy를 생성한다. 값이 있으면 `COLLISION_PROXY` 그룹에 등록한 Prototype을 사용한다. 찰스 룩우드 로더는 발판·다리·보스 진입 등 Client의 Trigger 클래스를 이 그룹에 등록한다.
+
+팀원은 이미 등록된 동작을 GUI에서 선택하고 위치·형상을 배치할 수 있다. 그러나 새로운 게임 규칙 자체를 문자열 입력만으로 만드는 것은 아니다. 신규 동작은 Client 클래스와 Prototype 등록이 필요하며, 현재 스키마에는 자유 형식의 이벤트 Payload가 없다.
+
+## 사용 흐름과 검증 항목
+
+1. `Collision Proxy`에서 편집할 파일명을 고르고 Load한다. 기존 파일 덮어쓰기 여부를 확인한다.
+2. Actor와 Shape를 생성하거나 선택해 위치·회전·크기와 Layer·참여 정책을 조절한다.
+3. Cooked 형상은 경로와 미리보기를 확인한다. 단위 형상 프리셋도 필요한 Cooked 파일이 있어야 한다.
+4. 기존 맵 충돌을 일시 중지하고 PhysX Preview를 만든 뒤 이동·충돌·Trigger를 시험한다.
+5. 변경 후에는 Preview를 재생성한다. 시험 종료 시 Preview를 제거하고 기존 충돌을 복구한다.
+6. Save 후 실제 레벨 로딩 경로에서 재확인한다. 런타임 출력 폴더와 리소스 원본 관리도 별도로 확인한다.
+
+현재 체크아웃에서는 디버그 렌더 비활성 상태부터 확인해야 한다. Visible이나 Edit Mode를 켜는 것만으로 공통 렌더 함수의 조기 반환을 우회할 수는 없다.
+
+## 결과와 확인 범위 {/* #결과와-기여-근거 */}
+
+맵 충돌의 배치 값을 C++ 코드에서 분리하고, 편집 데이터·시각적 확인·실제 물리 시험·JSON 재사용을 연결했다. 이는 자동 충돌 생성기가 아니라 개발자가 선택한 단순 형상과 Cooked 메시를 조합하는 배치 도구다.
+
+주요 이력은 `e8caf623`의 Proxy 데이터와 런타임 생성 보강, `c5fdc087`의 Convex·Triangle 미리보기, `5b6c5a24`의 기즈모·배치 기능 보강, `d18e958f`의 Trigger와 기존 충돌 OFF/ON 연결이다. 이후 팀원의 레벨 배치까지 전부 단독 작업으로 포함하지 않는다.
+
+구현은 `PhysXCollisionProxyData.h`, `PhysXCollisionProxyEditor.cpp`, `PhysXCollisionProxyObject.cpp`, `PhysXManager.cpp`와 각 Client 레벨·로더에서 확인할 수 있다. 후속 보강 후보는 Inspector Undo 통일, 메시 Picking 정확도, 파일의 ID·수치·리소스 유효성 검사다.

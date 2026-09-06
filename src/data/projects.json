@@ -1,0 +1,221 @@
+[
+  {
+    "slug": "hogwarts-legacy",
+    "title": "Hogwarts Legacy",
+    "period": "2026.06 – 2026.08",
+    "description": "DirectX 11 자체 엔진으로 제작한 7인 팀 3D 액션 RPG 프로젝트입니다.",
+    "role": "팀장 · 프레임워크 · 물리",
+    "teamSize": "7명",
+    "platform": "Windows x64",
+    "overview": "호그와트 레거시를 모작한 3D 액션 RPG입니다. C++20·DirectX 11 자체 엔진 위에 전투와 월드 콘텐츠를 구성하고, PhysX·NvCloth를 이용한 물리 상호작용과 망토 시뮬레이션을 연결했습니다.",
+    "collaboration": [
+      "Player·AI 담당자가 사용할 수 있도록 CCT, 충돌 Callback, Query API를 제공",
+      "Animation·Renderer와 Ragdoll Bone, 망토 Simulation, Shadow 적용 순서를 연동",
+      "Effect·Sound·UI를 물리 콘텐츠와 연결하고 통합 브랜치에서 충돌과 수명 문제를 검증"
+    ],
+    "tasks": [
+      {
+        "title": "객체 생명주기 안정화",
+        "description": "8-byte Generation Handle, FrameEnd 지연 파괴와 Fixed Update 기반 프레임워크를 구성하고, 삭제·슬롯 재사용 이후의 외부 참조를 검증했습니다."
+      },
+      {
+        "title": "물리 시스템 통합",
+        "description": "PhysX 5.6.1의 Rigid Body, CCT, Query, Collision Filter, Joint, Ragdoll을 컴포넌트와 Manager API로 구성했습니다."
+      },
+      {
+        "title": "물리 시뮬레이션 콘텐츠",
+        "description": "NvCloth 망토, Physics Door, 물리 Prop, Summoner’s Court를 실제 게임 흐름과 연결했습니다."
+      },
+      {
+        "title": "진단과 저작 환경",
+        "description": "Tracy 계측과 ImGui 기반 디버그·저작 도구를 마련해 런타임 상태와 병목을 추적했습니다."
+      }
+    ]
+  },
+  {
+    "slug": "minecraft",
+    "title": "Minecraft",
+    "period": "2026.04 – 2026.06",
+    "description": "C++20·DirectX 11 자체 엔진으로 절차적 복셀 월드와 생존 플레이를 구현한 1인 프로젝트입니다.",
+    "role": "프레임워크 · 복셀 월드 · 렌더링 · 게임플레이",
+    "teamSize": "1명",
+    "platform": "Windows x64",
+    "overview": "32×256×32 청크로 구성된 복셀 월드를 탐험하고 블록을 변경하는 생존 게임입니다. 절차적 지형과 물·용암 확산, 인벤토리·제작·전투, 낮밤과 그림자를 하나의 플레이 환경으로 연결했습니다.",
+    "tasks": [
+      {
+        "title": "자체 프레임워크와 리소스 관리",
+        "description": "Prototype·Component 기반 객체 구조와 Handle, Worker, 리소스 관리를 구성했습니다."
+      },
+      {
+        "title": "청크 계산과 화면 반영 분리",
+        "description": "절차적 청크 생성·복셀 조명·노출 면 메시 계산을 Worker에서 처리하고, Future 완료 후 메인 스레드에서 GPU 버퍼를 준비하는 비동기 스트리밍을 구성했습니다."
+      },
+      {
+        "title": "플레이 가능한 월드 변경",
+        "description": "DDA 기반 블록 설치·파괴와 폭발을 편집 대기 데이터, 조명 재전파, 유체 Tick 및 청크 재메시에 연결하고 지형 충돌·생존 게임플레이를 구현했습니다."
+      },
+      {
+        "title": "월드 렌더링과 애니메이션",
+        "description": "본 애니메이션, Shadow Map, 낮밤·구름과 CPU 파티클을 구현했습니다."
+      }
+    ]
+  },
+  {
+    "slug": "dave-the-diver",
+    "title": "DAVE THE DIVER",
+    "period": "2026.01 – 2026.03",
+    "description": "DirectX 9 기반 팀 프로젝트의 팀장으로서 수행한 개발 관리와 게임 클라이언트 구현 경험을 정리합니다.",
+    "role": "팀장 · 프레임워크 보강 · UI · 물고기 게임플레이",
+    "teamSize": "4명",
+    "platform": "Windows"
+  },
+  {
+    "slug": "sanabi",
+    "title": "SANABI",
+    "period": "2025.11 – 2025.12",
+    "description": "SANABI 관련 개발 기록과 기술 사례를 정리합니다.",
+    "role": "게임플레이 · 애니메이션 · 맵 에디터 · 프레임워크 보강",
+    "teamSize": "1명",
+    "platform": "Windows"
+  },
+  {
+    "slug": "tetris",
+    "title": "Tetris",
+    "period": "2025.06 – 2025.08",
+    "description": "Rust 게임 코어를 Android·iOS·Web과 FFI로 연결하고, WebSocket 기반 웹 멀티플레이를 구현한 경험을 정리합니다.",
+    "role": "게임 코어 · 웹 클라이언트 · 멀티플레이 서버 · 플랫폼 연계",
+    "teamSize": "1명",
+    "platform": "Android · iOS · Web"
+  },
+  {
+    "slug": "lucky-ball",
+    "title": "Lucky Ball",
+    "period": "2024.10 – 2025.01",
+    "description": "Rust와 Bevy 엔진으로 구현한 게임을 Android·iOS·Web 환경과 FFI로 연결한 크로스 플랫폼 개발 경험을 정리합니다.",
+    "role": "게임플레이 · 물리 · UI · 플랫폼 연계",
+    "teamSize": "1명",
+    "platform": "Desktop · Android · iOS · Web"
+  },
+  {
+    "slug": "flappy-bird",
+    "title": "Flappy Bird",
+    "period": "2024.08 – 2024.09",
+    "description": "Rust·Bevy·Avian2D로 한 판의 게임 흐름을 구현하고 모바일·Web 실행 환경에 연결한 1인 Flappy Bird 클론 프로젝트입니다.",
+    "role": "게임플레이 · UI·애니메이션 · 플랫폼 연계",
+    "teamSize": "1명",
+    "platform": "Desktop · Android · iOS · Web",
+    "overview": "Rust·Bevy·Avian2D로 한 판의 입력·물리·득점·결과 화면을 구성한 Flappy Bird 클론입니다. 공통 게임 코드를 모바일·Web 실행 환경과 연결했습니다. 초기 개발은 2024.08.23~09.01에 진행했고, GitHub Pages 배포는 2025년에 별도로 보강했습니다.",
+    "tasks": [
+      {
+        "title": "입력에서 한 판 종료까지",
+        "description": "Avian2D 기반 물리 상승·충돌·센서 득점과 파이프 재사용을 구현하고, 일시정지·결과 전환을 상태별 시스템 실행과 이벤트로 연결했습니다."
+      },
+      {
+        "title": "단계적인 결과 피드백",
+        "description": "기준 해상도와 마스크로 화면 비율을 유지하고, Tween·Atlas와 Timer로 플래시·패널 이동·점수 카운트·메달 표시를 구성했습니다."
+      },
+      {
+        "title": "공통 코드와 플랫폼 경계",
+        "description": "JNI·Swift C ABI·wasm-bindgen으로 공통 최고 점수 저장 API를 플랫폼별 저장소에 연결하고, 외부 콜백을 채널로 Bevy 갱신 흐름에 전달했습니다."
+      },
+      {
+        "title": "실행 결과물 전달",
+        "description": "모바일 호스트에 Rust 라이브러리와 에셋을 전달하고, Web 빌드부터 Pages 게시까지 workflow로 연결했습니다."
+      }
+    ]
+  },
+  {
+    "slug": "cherry-world",
+    "title": "C*erry World",
+    "period": "2022.12 – 2023.12",
+    "description": "C*erry의 C*erry Walk 걷기 기능을 기반으로 한 신규 앱에서 iOS 개발과 웹·네이티브·서버 연계를 담당했습니다.",
+    "role": "iOS · 웹–네이티브 연계 · 서비스 유지보수",
+    "platform": "iOS · Android · Web",
+    "overview": "C*erry의 C*erry Walk 걷기 기능에서 출발한 신규 앱입니다. 웹과 네이티브 기능을 연결해 걸음·보상과 광고를 제공하며, 앱 출시 이후 계정 이전과 서비스 운영을 이어 갔습니다.",
+    "collaboration": [
+      "화면·네이티브·서버의 변경 범위와 앱 배포 영향을 관련 담당자와 조율",
+      "Android 광고 연계 내용을 공유하고 플랫폼 간 호출 흐름을 정리"
+    ],
+    "tasks": [
+      {
+        "title": "iOS 앱과 광고 연계",
+        "description": "iOS 앱 개발을 전담하고 Android·iOS 광고 SDK·오퍼월 연계와 광고 공통 계층 설계를 수행했습니다."
+      },
+      {
+        "title": "웹–네이티브 통신과 걸음 정책",
+        "description": "C*erry Walk에서 시작된 콜백·Promise 기반 통신 방식과 설명 자료를 정리하고, 다계정·다앱·초기화 상황의 걸음·보상 정책 변경안을 검토했습니다."
+      },
+      {
+        "title": "로그인 이전 장애 대응",
+        "description": "변경 전후 사용자 식별정보를 매핑하고 LDAP·RDB 갱신 과정의 SQL 오류와 계정 중복을 추적했습니다."
+      },
+      {
+        "title": "기존 타이머의 자원 누적 추적",
+        "description": "주간 재시작으로 가려졌던 타이머별 스레드 풀 누적과 자원 고갈을 대용량 배치 이후 로그·덤프와 연결해 분석했습니다."
+      },
+      {
+        "title": "TypeScript 도입과 개발 환경",
+        "description": "기존 JavaScript와 공존하는 TypeScript를 도입·사용하고 빌드·디버깅 방법을 안내했습니다."
+      },
+      {
+        "title": "연휴 운영 중 SQL 오류 추적",
+        "description": "추석 모니터링에서 발견한 MyBatis 사용 쿼리의 공백·줄바꿈과 DB 실행 SQL 파싱 문제를 추적하고 오류 로그를 남겼습니다."
+      }
+    ]
+  },
+  {
+    "slug": "cherry-card",
+    "title": "C*erry Card 관리자페이지",
+    "period": "2020.10 – 2022.12",
+    "description": "카드 관리자페이지에서 기관 예치금과 카드별 한도·거래 이력을 반영한 자동충전·환불 대상 계산과 카드사 연계 업무를 수행했습니다.",
+    "role": "백엔드 · SQL · 카드사 연계",
+    "overview": "Spring Boot·PostgreSQL 기반 카드 서비스의 관리자페이지입니다. 기관 예치금과 카드·지원 사례별 조건에 따라 충전·환불 대상을 계산하고 외부 카드사와 거래 정보를 연계합니다.",
+    "tasks": [
+      {
+        "title": "다중 기준의 충전 계산",
+        "description": "기관 가용 예치금, 카드 추가 충전 가능액과 사례별 요청을 나눠 계산하고, CTE·윈도 함수로 카드별 다중 요청과 기관 단위 누적 조건을 연결했습니다."
+      },
+      {
+        "title": "최초 충전·환불 대상 구분",
+        "description": "최초 충전 요청을 분리하고 해지 카드의 환불 대상을 선정하는 SQL을 구현했습니다."
+      },
+      {
+        "title": "외부 카드사 전문 연계",
+        "description": "카드사와 고정 길이 텍스트 전문을 주고받는 연계 업무를 수행했습니다."
+      }
+    ]
+  },
+  {
+    "slug": "cherry",
+    "title": "C*erry",
+    "period": "2020.10 – 2022.12 · 2023.07 – 08 운영 대응",
+    "description": "기부 플랫폼의 사용자·관리자 기능, 외부 회사 연계 후원 페이지와 시즌별 이벤트 업무를 수행했습니다.",
+    "role": "웹 · 백엔드 · 서비스 유지보수",
+    "platform": "Web · Mobile WebView",
+    "overview": "이*넷의 스타트업 부서에서 개발한 Spring Boot·PostgreSQL 기반 기부 플랫폼입니다. 사용자 캠페인과 관리자 기능, 외부 후원 페이지 및 시즌별 C*erry Run 챌린지를 운영했으며, C*erry Walk 걷기 기능은 이후 C*erry World의 기반이 됐습니다.",
+    "tasks": [
+      {
+        "title": "사용자·관리자 기능과 화면 공통화",
+        "description": "캠페인·행사 페이지와 관리자 기능을 개발하고, Thymeleaf·레이아웃으로 검색 조건과 데이터 테이블을 공통화했습니다."
+      },
+      {
+        "title": "외부 후원 페이지와 시즌 이벤트",
+        "description": "외부 회사와 연계한 소울 후원 페이지를 개발하고 C*erry Run 챌린지 인수인계와 C*erry Walk 관련 업무를 수행했습니다."
+      },
+      {
+        "title": "가입 스파이크의 DB 병목 분석",
+        "description": "2023년 C*erry Run 가입 급증 때 사용자 조회의 풀스캔을 분석하고 일반·표현식 인덱스를 추가해 실행계획 변경을 확인했습니다. 가입자 집중 시 AWS의 DB 부하·대기 이벤트도 기록했습니다."
+      },
+      {
+        "title": "정기 배포와 브랜치 이주",
+        "description": "팀 공통 주간 정기 배포를 전담하고 C*erry 개발 중 master 브랜치 이주 계획을 작성했습니다."
+      }
+    ]
+  },
+  {
+    "slug": "hdbank",
+    "title": "HDBANK",
+    "period": "2020.08",
+    "description": "KOSMO 파이널 프로젝트에서 수행한 Spring·MyBatis 기반 계좌이체 및 JSP 화면 구현 경험을 정리합니다."
+  }
+]

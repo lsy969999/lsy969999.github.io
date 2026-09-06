@@ -1,0 +1,162 @@
+---
+id: hogwarts-time-scale-requests
+project: hogwarts-legacy
+title: 슬로모션과 일시정지를 위한 시간 배율 요청 관리
+description: 태그별 시간 배율 요청을 합성하고 Unscaled Time으로 전환·해제·안전 복구를 처리한 구조
+slug: /hogwarts-legacy/time-scale-requests
+order: 190
+featured: true
+tags:
+  - C++20
+  - Game Loop
+  - State Machine
+  - Gameplay
+---
+
+# 슬로모션과 일시정지를 위한 시간 배율 요청 관리
+
+## 배경과 목표 {/* #해결하려던-문제 */}
+
+슬로모션을 전역 변수 하나에 대입하는 방식으로 구현하면, 여러 연출이 겹칠 때 복구 주체가 충돌한다. 예를 들어 A 연출이 배율을 0.5로 낮춘 상태에서 B 연출이 0.2를 요청했는데, A가 종료되며 배율을 1로 복원하면 아직 진행 중인 B까지 풀려 버린다.
+
+이를 각 연출이 전역 값을 직접 복원하는 문제가 아니라, 자신이 등록한 요청을 해제하는 문제로 바꿨다. `CTimeManager`가 태그별 요청을 보관하고 최종 배율을 계산하며, 게임 로직은 `CGameInstance`를 통해 요청을 시작하고 종료한다.
+
+[Frame Loop와 Fixed Update 구조](/projects/hogwarts-legacy/frame-loop)가 실행 순서와 시간 전달의 개요라면, 이 문서는 요청 중첩, 전환, 해제와 실제 고대마법 투척 적용을 설명한다. 배율 0도 지원하지만, 이것만으로 입력·메뉴·오디오까지 갖춘 전체 Pause 시스템을 구현한 것은 아니다.
+
+## 태그별 요청과 최솟값 합성
+
+요청은 `unordered_map<StringID, TIME_SCALE_REQUEST>`에 저장한다. 각 요청은 목표 배율뿐 아니라 현재 배율, 전환 단계, 단계별 경과시간과 전체 Unscaled 경과시간을 가진다.
+
+최종 배율은 모든 요청의 **현재 보간된 배율 중 최솟값**이다. 목표 배율만 비교하거나 요청을 곱하지 않으며, 마지막 요청이 앞선 요청을 덮어쓰지도 않는다.
+
+아래는 보간 없이 즉시 적용·취소하는 경우의 예시다.
+
+| 동작 | 남아 있는 요청 | 최종 배율 |
+| --- | --- | --- |
+| A 시작 | A: 0.5 | 0.5 |
+| B 시작 | A: 0.5, B: 0.2 | 0.2 |
+| B 취소 | A: 0.5 | 0.5 |
+| A 취소 | 없음 | 1.0 |
+
+B가 끝나도 A가 남아 있다면 정상 속도까지 복구하지 않는 것이 의도한 동작이다. 배율 범위는 0부터 1까지로 제한했다. 현재 구현은 감속과 시간 정지를 위한 것으로, 1을 넘는 배속 재생은 지원하지 않는다.
+
+## 요청의 진행 단계
+
+```text
+BeginTimeScale
+  → BLEND_IN: 1에서 목표 배율로 전환
+  → HOLD: 목표 배율 유지
+  → BLEND_OUT: 해제 시점의 배율에서 1로 복구
+  → 요청 제거, 남은 요청으로 최종 배율 재계산
+```
+
+`BLEND_IN`과 `BLEND_OUT`에는 Smoothstep을 사용한다. 0~1로 제한한 진행률 t에 `t² × (3 − 2t)`를 적용한 뒤 두 배율을 보간해, 전환의 시작과 끝을 완만하게 만든다.
+
+해제가 Blend In 도중 발생하더라도 목표 배율까지 먼저 내려가지 않는다. `EndTimeScale`을 호출한 시점의 해당 요청 배율을 저장하고 거기서 1로 복구한다. Blend In 시간이 0이면 목표 배율을 즉시 적용하고, Blend Out 시간이 0이면 요청을 즉시 제거한다.
+
+이 보간은 요청별로 수행한다. 여러 곡선의 최솟값을 선택하므로 최종 배율의 변화율까지 항상 매끄럽다고 보장하지는 않는다.
+
+## 복구 타이머가 Unscaled Time을 사용하는 이유
+
+시간 정지의 해제 타이머까지 Scaled Delta로 계산하면, 배율이 0일 때 타이머도 멈춰 스스로 복구하지 못한다. 따라서 요청의 보간과 최대 지속시간 판정은 `BeginFrame`에서 Unscaled Delta로 진행한다.
+
+| 설정 | 의미 |
+| --- | --- |
+| `fTargetScale` | 요청의 목표 배율. 0~1로 제한 |
+| `fBlendIn` | 목표 배율로 내려가는 시간 |
+| `fMaxUnscaledDuration` | 요청 시작부터 안전 복구를 개시하기까지의 최대 누적시간. Blend In도 포함 |
+| `fSafetyBlendOut` | 최대 지속시간 도달 시 자동 복구에 사용하는 시간 |
+| `sTag` | 요청 등록·조회·해제에 사용하는 식별자 |
+
+최대 지속시간을 넘으면 현재 단계가 Blend Out이 아닌 요청을 안전 복구 단계로 전환한다. 이미 정상 해제 중인 요청의 Blend Out을 다시 시작하지는 않는다. `fMaxUnscaledDuration`이 0이면 시간 제한을 사용하지 않으므로, 호출자가 반드시 해제해야 한다.
+
+여기서 Unscaled는 배율을 곱하지 않았다는 뜻이다. `CBaseApp`에서 긴 Frame Delta를 제한한 뒤 전달하므로, 디버거 정지나 큰 프레임 지연까지 그대로 세는 실제 시계 시간과는 다르다. 단계 전환도 프레임 단위로 검사하며, 경계 시간을 잘라 정밀하게 적분하는 타이머는 아니다.
+
+## API의 역할과 호출 규칙
+
+| API | 역할 |
+| --- | --- |
+| `BeginTimeScale(desc)` | 태그로 요청 등록. 같은 태그가 있으면 새 요청으로 교체 |
+| `EndTimeScale(tag, blendOut)` | 해당 요청을 보간하며 해제 |
+| `CancelTimeScale(tag)` | 해당 요청을 즉시 제거 |
+| `IsTimeScaleActive(tag)` | 요청이 아직 저장되어 있는지 확인. Blend Out 중에도 true |
+| `ClearTimeScaleRequests()` | 모든 요청을 제거하고 배율을 1로 복구 |
+
+등록 시 빈 태그와 유한하지 않은 수치를 거부하고, 음수 시간은 0으로 제한한다. 존재하지 않는 요청의 종료·취소는 false를 반환한다.
+
+같은 태그의 재등록은 참조 횟수를 늘리는 동작이 아니다. 기존 요청을 교체하므로 경과시간과 보간 시작 상태도 초기화된다. 매 Update마다 Begin을 호출하면 최대 지속시간이 계속 초기화될 수 있어, 상태 진입이나 일회성 이벤트에서 시작하도록 구성해야 한다.
+
+End 역시 매 프레임 반복 호출하지 않는다. 현재 구현은 호출할 때마다 Blend Out의 시작 배율과 경과시간을 다시 설정하므로 해제가 계속 늦어질 수 있다. 종료 전환 시 한 번 호출하고, 즉시 정리가 필요할 때만 Cancel을 사용한다.
+
+여러 객체가 동시에 같은 태그를 사용하면 같은 요청을 공유·교체하게 된다. 태그가 자동으로 객체별 소유권을 구분하는 것은 아니므로, 독립적인 연출에는 서로 다른 태그가 필요하다.
+
+## 게임 로직에서 사용하는 형태
+
+다음은 요청 시작과 정상 종료를 보여주는 축약 예시다. 두 코드는 실제로는 서로 다른 상태 전환 시점에 호출한다.
+
+```cpp
+// 연출 시작 시 한 번 호출한다.
+TIME_SCALE_REQUEST_DESC desc{};
+desc.sTag = "Example_SkillSlow";
+desc.fTargetScale = 0.55f;
+desc.fBlendIn = 0.015f;
+desc.fMaxUnscaledDuration = 1.25f;
+desc.fSafetyBlendOut = 0.04f;
+
+if (!CGameInstance::Get().BeginTimeScale(desc))
+{
+    return;
+}
+```
+
+```cpp
+// 연출 종료 시 자신의 요청만 해제한다.
+CGameInstance::Get().EndTimeScale("Example_SkillSlow", 0.04f);
+```
+
+일반 스킬 종료에서 Clear를 사용하면 다른 연출의 요청도 사라진다. 전체 정리는 경계가 명확한 곳에서만 수행한다. 실제 `CLevelManager::FrameStart`의 레벨 교체 처리에서는 이전 레벨의 요청이 다음 레벨에 남지 않도록 `ClearTimeScaleRequests`를 호출한다.
+
+## Frame Loop와 물리 시뮬레이션 연결
+
+Frame 시작 시 요청을 갱신하고 `Scaled Delta = Unscaled Delta × 최종 배율`을 계산한다. GameObject Manager는 객체의 `TIME_DOMAIN`에 따라 두 Delta 중 하나를 선택해 전달한다.
+
+Fixed Update의 실행 주기를 배율에 맞춰 늦추는 방식은 아니다. 기존 Unscaled Fixed 주기로 호출하되, `GetScaledFixedDelta`로 계산한 작은 Step을 PhysX와 NvCloth에 전달한다. 예를 들어 기본 Step이 1/60초이고 배율이 0.5라면 시뮬레이션에 전달되는 Step은 1/120초다.
+
+배율이 0이면 GameObject Fixed Update 호출 자체는 유지된다. Scaled 객체에는 0 Delta, Unscaled 객체에는 기본 Fixed Delta를 전달한 뒤, CCT 상호작용 준비와 PhysX·NvCloth 시뮬레이션은 건너뛴다. 따라서 Update에서 Delta와 무관하게 실행하는 로직까지 정지하는 것은 아니다. Unscaled 객체의 콜백이 실행되더라도 PhysX 시뮬레이션이 별도로 진행되는 것도 아니다.
+
+또한 API 호출로 배율을 즉시 재계산하더라도, 이미 다른 함수에 전달한 Delta까지 바뀌지는 않는다. 현재 구조는 FrameStart와 Update 등에서 Delta를 읽어 전달하므로, 프레임 도중 요청 변경을 모든 단계에 소급 적용하는 방식으로 이해해서는 안 된다.
+
+## 실제 적용: 고대마법 투척의 발사 전 연출
+
+`CPlayer_AncientAttack_State`는 물체를 끌어온 뒤 발사하기 전 잠시 시간을 늦춘다. 태그는 `AncientThrow_PreLaunch`이며, 현재 코드의 주요 값은 다음과 같다.
+
+| 항목 | 값 |
+| --- | --- |
+| 목표 시간 배율 | 0.55 |
+| Blend In / 정상 Blend Out | 0.015초 / 0.04초 |
+| 발사 전 대기 | Unscaled 0.5초 |
+| 발사 후 해제까지 대기 | Unscaled 0.08초 |
+| 최대 요청 지속시간 | Unscaled 1.25초 |
+
+투척 애니메이션의 약 10% 지점에서 물체를 옆으로 끌어오는 단계가 끝나면 요청을 시작한다. 이때 애니메이션 재생 속도도 별도로 낮추고, 발사 전 대기시간은 `GetUnscaledDelta`로 누적한다. 대기가 끝나면 애니메이션 속도를 복구해 발사하고, 발사 후 짧은 대기를 거쳐 시간 배율 요청을 해제한다.
+
+시간 배율, 개별 애니메이션 재생 속도, 발사 대기 타이머는 서로 다른 제어다. 발사 대기까지 전달받은 Scaled Delta로 누적하면 연출 속도에 따라 발사 시점이 늘어나므로 별도의 시간 기준을 선택했다.
+
+카메라 FOV와 Radial Blur도 함께 제어하지만, 이는 TimeManager의 책임이 아니다. 투척 상태가 연출을 시작·복구하고, 상태 종료나 실패 경로에서도 자신의 시간 요청을 정리한다. 최대 지속시간은 정상 해제의 대체물이 아니라 해제 누락에 대한 보조 안전장치다.
+
+물체 조작권과 투척 전환은 [아씨오와 고대마법 투척](/projects/hogwarts-legacy/accio-ancient-throw-control)에 정리했다.
+
+## 담당 범위와 현재 한계
+
+`CTimeManager`의 요청 구조와 보간·해제 API를 구현하고, 초기 Handle 방식에서 StringID 태그 기반으로 정리했다. 관련 이력은 `3bcafb27`의 Time Scale 초안, `aedeade8`의 태그 기반 전환, `744226b7`의 용어 통일에서 확인할 수 있다.
+
+이 구조의 핵심은 전역 속도를 누가 마지막에 대입했는지가 아니라, 아직 유효한 요청이 무엇인지로 결과를 결정한다는 점이다. 연출 종료 시 자신의 요청만 해제하도록 책임을 좁혔다.
+
+다만 요청에는 객체 Handle 기반 자동 정리나 스레드 동기화가 없다. 게임 루프의 정해진 시점에 호출하고 상태 종료 시 정리해야 한다. 사운드의 재생 정지·피치 변경도 자동 처리하지 않으며, 입력 차단과 UI 정책까지 포함하는 Pause 시스템은 별도 설계 대상이다.
+
+### 구현 근거
+
+- `Engine/Public/TimeManager.h`, `Engine/Private/TimeManager.cpp`: 요청 데이터, 보간, 합성, 복구 API.
+- `Engine/Private/BaseApp.cpp`, `GameInstance.cpp`, `GameObjectManager.cpp`: Frame 시간과 Fixed Step 전달, 객체별 시간 영역 선택.
+- `Engine/Private/LevelManager.cpp`: 레벨 교체 시 전체 요청 정리.
+- `Client/Private/Player_AncientAttack_State.cpp`: 발사 전 슬로모션과 상태 종료 시 복구.

@@ -1,0 +1,105 @@
+---
+id: hogwarts-runtime-type-system
+project: hogwarts-legacy
+title: 자체 Derived Type 시스템
+description: EngineBase 계층에서 타입 조회와 안전한 Cast를 일관되게 제공한 경량 런타임 타입 시스템
+slug: /hogwarts-legacy/runtime-type-system
+order: 40
+featured: true
+tags:
+  - C++20
+  - Type System
+  - Engine Architecture
+---
+
+# 자체 Derived Type 시스템
+
+## 배경과 목표 {/* #도입-배경 */}
+
+Engine Manager는 `CEngineBase` 포인터로 GameObject, Component, Resource를 보관한다. 실제 기능을 사용하려면 구체 타입으로 되돌려야 하지만, 호출부마다 `dynamic_cast`와 타입 문자열 비교를 섞으면 규칙이 달라지고 Factory·GUI·Lua에서 타입 정보를 재사용하기 어렵다.
+
+그래서 모든 EngineBase 파생 클래스가 동일한 정적 타입 ID와 런타임 질의 API를 제공하도록 자체 타입 계층을 구성했다.
+
+## 선언 방식
+
+파생 클래스는 `DECLARE_DERIVED_TYPE`으로 자신의 타입과 부모 타입을 선언한다.
+
+```cpp
+class CGameObject : public CEngineBase
+{
+    DECLARE_DERIVED_TYPE(CGameObject, CEngineBase)
+};
+```
+
+매크로는 다음 정보를 생성한다.
+
+- `StaticType`: 클래스 이름을 `STRID`로 변환한 정적 ID
+- `GetType()`: 객체의 실제 타입 ID
+- `GetTypeString()`: GUI와 로그용 타입 이름
+- `IsA(id)`: 현재 타입 확인 후 부모의 `IsA`로 이어지는 계층 검사
+- 잘못된 클래스 이름을 적었을 때 잡아내는 `static_assert`
+
+```cpp title="Engine_Base.h"
+#define DECLARE_DERIVED_TYPE(ChildType, ParentType)            \
+    using RuntimeTypeOwner = ChildType;                       \
+    static constexpr Engine::_string_id StaticType =          \
+        Engine::STRID(#ChildType);                             \
+    bool IsA(Engine::_string_id id) const override            \
+    {                                                         \
+        if (id == StaticType) return true;                    \
+        return ParentType::IsA(id);                           \
+    }
+```
+
+## Cast API
+
+`Engine::Cast<T>`는 먼저 `IsA(T::StaticType)`를 검사하고 성공한 경우에만 `static_cast`한다. Raw Pointer뿐 아니라 Engine 전용 `UPtr`, `SPtr`에도 같은 규칙을 제공한다.
+
+```cpp
+CGameObject* object = manager.GetGameObjectByHandle(handle);
+CPlayer* player = Engine::Cast<CPlayer>(object);
+
+if (player == nullptr)
+{
+    return;
+}
+```
+
+호출부는 문자열을 직접 비교하지 않고 `Cast<T>`의 실패를 `nullptr`로 처리한다. EngineBase 계층의 일반적인 Down Cast 경로에서 RTTI 기반 `dynamic_cast`에 의존하지 않게 됐다.
+
+## 보조 인터페이스와 다중 상속
+
+일부 GameObject는 주 상속 계층 외의 인터페이스도 노출해야 한다. 단순히 같은 주소로 `static_cast`하면 다중 상속의 포인터 Offset을 무시할 수 있으므로, `DECLARE_DERIVED_TYPE_WITH_BASES`와 `QueryAdditionalType`을 추가했다.
+
+```cpp
+DECLARE_RUNTIME_TYPE(IPoolable)
+
+class CProjectile final : public CGameObject, public IPoolable
+{
+    DECLARE_DERIVED_TYPE_WITH_BASES(
+        CProjectile,
+        CGameObject,
+        IPoolable)
+};
+```
+
+`QueryAdditionalType`은 실제 `static_cast<IPoolable*>` 결과를 반환하므로, 다중 상속에서 조정된 주소를 보존한다. `shared_ptr` Cast에는 Aliasing Constructor를 사용해 기존 Control Block과 Deleter를 공유하면서 조정된 포인터를 가리킨다.
+
+## 사용 영역
+
+- Object Factory 등록과 생성
+- Prototype·Resource의 구체 타입 판정
+- Handle로 찾은 GameObject의 Typed Lookup
+- GameObject Manager GUI의 실제 타입 이름 출력
+- Lua Context에서 객체 타입 확인
+- Poolable 같은 추가 인터페이스 질의
+
+## 설계상 주의점
+
+이 시스템은 C++ 언어 전체의 RTTI를 대체하는 범용 Reflection이 아니다. `CEngineBase` 계층과 명시적으로 등록한 보조 인터페이스에서만 유효하다. 새 파생 클래스가 매크로 선언을 누락하면 타입 체인에 들어오지 않으므로, 클래스 작성 규칙과 정적 검사를 함께 유지해야 한다.
+
+또한 `RuntimeTypeID<T>()`로 만든 보조 타입 ID는 컴파일러의 `__FUNCSIG__`를 사용한다. 동일 빌드 내부의 런타임 질의에는 유용하지만 파일이나 네트워크에 영속화하는 식별자로 사용하지 않는다.
+
+## 구현 결과 {/* #결과 */}
+
+타입 이름, 계층 검사, Pointer Cast가 하나의 규칙으로 통합됐다. 이후 Handle Manager, Object Factory, Resource Manager, Lua Binding, 디버그 GUI가 동일한 타입 정보를 재사용하면서 각 시스템에 흩어져 있던 수동 타입 판정 코드를 줄일 수 있었다.
