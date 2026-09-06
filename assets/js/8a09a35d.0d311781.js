@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunklimits1214_portfolio=self.webpackChunklimits1214_portfolio||[]).push([["1621"],{1533(t){t.exports=JSON.parse('{"name":"portfolio-metadata","id":"default"}')}}]);
