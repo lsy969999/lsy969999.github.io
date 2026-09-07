@@ -82,10 +82,6 @@ ThirdParty/
 
 DLL 기반 엔진에서는 Debug/Release 또는 서로 다른 빌드의 Engine DLL과 Client EXE가 섞이면 STL 객체의 레이아웃·런타임 힙 경계가 어긋날 수 있다. 실제로 종료 시점의 문자열 소멸에서 메모리 손상처럼 보이는 문제가 있었고, 전체 재빌드 후 사라지는 것을 확인했다.
 
-이후 Engine DLL이 자신의 빌드 구성을 외부에 노출하고 Client 시작 시 기대 구성과 비교하도록 방어 코드를 추가했다. 불일치하면 초기화 초기에 메시지를 표시하고 종료하여, 한참 뒤 엉뚱한 Manager의 소멸자에서 크래시가 나는 상황을 앞당겨 진단하도록 했다.
+이후 Engine DLL이 자신의 빌드 구성을 외부에 노출하고 Client 시작 시 기대 구성과 비교하도록 방어 코드를 추가했다. 불일치하면 초기화 초기에 메시지를 표시하고 종료하여, 실행 도중 다른 Manager의 소멸자에서 드러날 수 있는 구성 불일치를 초기화 전에 진단하도록 했다.
 
-당시 크래시의 관찰과 가설, 정수 서명을 사용하는 이유와 검출 한계는 [DLL 빌드 구성 조기 검증](/projects/hogwarts-legacy/engine-build-compatibility)에서 설명한다. 재빌드 후 재현이 사라진 사실만으로 DLL 혼용을 최초 손상 원인으로 확정하지는 않았다.
-
-## 한계와 개선 방향 {/* #판단과-한계 */}
-
-Manifest와 수동 SDK의 혼합은 이 프로젝트 조건에서 현실적인 선택이었다. 다만 수동 SDK 갱신은 프로젝트 파일과 복사 스크립트를 함께 수정해야 한다. 이후에는 공통 Property Sheet 또는 CMake Preset으로 Include, Link, Runtime Copy 규칙을 한 단계 더 중앙화할 수 있다.
+빌드 구성 비교 방식은 [DLL 빌드 구성 조기 검증](/projects/hogwarts-legacy/engine-build-compatibility)에 정리했다.

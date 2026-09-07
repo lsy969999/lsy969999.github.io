@@ -172,12 +172,6 @@ ImGui의 Serializer Regression Test에서 지원 타입을 묶은 Test Case를 J
 
 `StringID`가 직렬화 타입으로 포함되어 Resource, Prototype, Effect처럼 Hash Tag를 사용하는 데이터도 Debug 문자열 기반으로 저장하고 다시 복원할 수 있다.
 
-## 한계와 개선 방향 {/* #트레이드오프와-개선점 */}
-
-Template 기반 범용 Interface는 타입 추가가 쉽지만 Compile Error가 길어질 수 있다. 현재 Binary는 Version 불일치를 거부하며 자동 Migration은 제공하지 않는다. 장기간 유지하는 포맷이라면 Version별 Reader나 Schema Migration 계층이 필요하다.
-
-Binary Header는 형식과 크기는 검증하지만 Payload Checksum은 없다. 외부 배포 데이터의 손상 검출을 강화하려면 CRC나 Content Hash를 추가할 수 있다.
-
 ## 구현 결과 {/* #결과 */}
 
 게임 데이터가 저장 포맷에 직접 의존하지 않게 되었고, JSON과 Binary가 같은 타입 지원과 오류 정책을 공유하게 됐다. 임시 파일 Commit과 임시 객체 Load를 통해 실패가 기존 파일과 런타임 상태를 훼손하지 않도록 만들었으며, Detailed Result로 Editor에서 문제 지점을 추적할 수 있게 했다.

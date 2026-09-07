@@ -365,20 +365,6 @@ Spawn Debris 1 ... 12
 
 공통 핵심은 전환 경계에서 최신 World State를 캡처하고, 새 물리 상태가 완전히 준비된 뒤 기존 소유 관계를 끊는 것이다.
 
-## 한계와 개선 방향 {/* #트레이드오프 */}
-
-Physics Component를 미리 생성하므로 전투 중 전환 비용은 줄지만, 살아 있는 모든 Guardian Weapon이 비활성 PhysX Actor와 Convex Shape를 보유한다. 몬스터 수가 크게 늘어난다면 공용 Pool이나 사망 직전 준비 방식과 메모리·생성 비용을 비교할 필요가 있다.
-
-Weapon 종류와 Convex 경로의 매핑은 현재 코드에 고정되어 있다. 종류가 많아지면 Weapon Descriptor나 Resource Metadata로 옮겨 콘텐츠 추가 시 C++ 분기를 수정하지 않는 구조가 적합하다.
-
-현재 전환은 Socket의 순간 속도를 계산하지 않는다. Animation의 움직임을 자연스럽게 이어야 한다면 이전·현재 Socket Pose 차이에서 Linear·Angular Velocity를 계산해 넘길 수 있지만, 낮은 Frame Rate에서 속도가 튀지 않도록 Clamp와 Fixed Tick 기준이 함께 필요하다.
-
-Prop Barrel은 파괴 시 12개의 GameObject와 PhysX Actor를 한꺼번에 생성한다. 현재는 생성 실패 Rollback으로 정합성을 지키지만 순간 생성 비용 자체는 남는다. 반복 배치가 많아지면 파편 Set을 미리 준비하거나 Object Pool과 연결하는 방식이 적합하다.
-
-파편 Resource와 Convex 이름은 Index 규칙으로 조합한다. 모델·Collider 파일이 하나라도 누락되면 Transaction 전체가 실패하므로, Level Load 단계에서 12개 쌍의 존재 여부를 검증하는 Asset Validation을 추가할 수 있다.
-
-현재 구조는 완성된 원본을 한 번에 12개 파편으로 교체한다. 파편 간 Bond Health나 부분 파괴를 계산하는 Destruction Graph는 포함하지 않는다. 단계적 파괴가 필요하면 같은 수명주기 위에 Blast Asset과 Chunk 활성 상태를 연결해야 한다.
-
 ## 구현 결과 {/* #결과 */}
 
 Guardian Weapon은 하나의 객체 안에서 Animation에서 PhysX로 Transform 소유권을 넘겼고, Prop Barrel은 원본 객체를 12개의 독립적인 PhysX 파편으로 교체했다. 두 사례 모두 최신 World State 캡처, 새 상태의 전체 준비, 실패 Rollback, 기존 관계 해제 순서를 공유한다.

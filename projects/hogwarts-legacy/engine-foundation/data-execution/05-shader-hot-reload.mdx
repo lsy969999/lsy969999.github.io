@@ -150,18 +150,6 @@ Resource Manager가 해제될 때 Shader Watcher를 먼저 제거한다. Watcher
 
 그 후 Pending 변경 목록을 비운다. Resource Registry가 파괴된 뒤 Watcher Thread가 변경 이벤트를 전달하는 상황을 방지한다.
 
-## 한계와 개선 방향 {/* #트레이드오프와-개선점 */}
-
-현재 구조에는 다음 한계가 있다.
-
-- Win32 디렉터리 API에 의존하므로 다른 운영체제에서는 Watcher 구현을 교체해야 한다.
-- Include Dependency Graph가 없어 `.hlsli` 변경은 전체 Shader를 재빌드한다.
-- 컴파일이 Main Thread에서 동기적으로 수행되어 전체 재빌드 시 순간적인 Frame 지연이 생길 수 있다.
-- 오류 알림이 Message Box 중심이라 반복적인 Shader 수정 흐름을 방해할 수 있다.
-- Stream-Out처럼 생성 API가 멤버 주소를 직접 사용하는 특수 Shader는 동일한 Transactional Swap 규칙으로 통일할 필요가 있다.
-
-확장한다면 Background Thread에서 Bytecode까지만 컴파일하고, Main Thread에서는 검증된 Bytecode로 D3D 객체를 교체하는 2단계 Pipeline을 적용할 수 있다. Include Dependency를 수집하면 전체 재빌드 대신 영향을 받는 Shader만 선택할 수 있다.
-
 ## 구현 결과 {/* #결과 */}
 
 Client를 재시작하지 않고 HLSL 수정 결과를 실행 중 확인할 수 있게 됐다. 파일 감시는 Background Thread, Resource 조회와 D3D 객체 교체는 Main Thread로 분리했고, 중복 저장 이벤트와 Include 변경, 컴파일 실패, 종료 시 대기 I/O까지 하나의 개발용 Pipeline으로 처리했다.

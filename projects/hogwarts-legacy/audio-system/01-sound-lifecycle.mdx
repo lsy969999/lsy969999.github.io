@@ -234,17 +234,9 @@ Sound Manager를 해제할 때는 Master Bus를 먼저 정지하고 활성 Sound
 
 이 순서는 Channel과 Sound Resource가 FMOD System보다 늦게 해제되는 상황을 방지한다. Resource Manager의 Registry가 먼저 사라지더라도 활성 재생 Map이 Resource의 실제 수명을 유지한다.
 
-## 한계와 개선 방향 {/* #선택한-설계와-한계 */}
+## 구현 결과 {/* #선택한-설계와-한계 */}
 
 이 구조의 핵심은 파일 Resource, 재생 Channel, GameObject 소유권의 수명을 서로 분리한 것이다. 외부에는 SOUND_ID와 Slot만 노출하고, FMOD Callback은 값만 Queue에 전달한다.
-
-현재 남아 있는 개선점은 다음과 같다.
-
-- Listener는 하나만 사용하므로 Split Screen이나 다중 청취 지점은 추가 정책이 필요하다.
-- 대부분의 3D 갱신에서 Velocity를 0으로 전달하므로 정확한 Doppler 연출에는 이전 위치 기반 속도 계산이 필요하다.
-- Channel 수는 256으로 고정되어 있다. 동시 재생이 많은 장면은 Category별 Priority와 Voice 제한을 명시적으로 검증할 수 있다.
-- Bus 구조는 Runtime 생성 방식이다. 프로젝트 전체 Bus 구성과 기본 Volume을 데이터 Asset으로 관리하면 설정 누락을 줄일 수 있다.
-- 개별 Channel Fade는 마지막 목표를 보존하지만 Bus Fade는 별도의 논리 Volume 상태를 유지하지 않는다. 연속 Bus Fade 정책을 동일하게 맞출 수 있다.
 
 ## 구현 결과 {/* #결과 */}
 

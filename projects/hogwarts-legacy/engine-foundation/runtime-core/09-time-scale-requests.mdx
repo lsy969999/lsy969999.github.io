@@ -146,17 +146,10 @@ Fixed Update의 실행 주기를 배율에 맞춰 늦추는 방식은 아니다.
 
 물체 조작권과 투척 전환은 [아씨오와 고대마법 투척](/projects/hogwarts-legacy/accio-ancient-throw-control)에 정리했다.
 
-## 담당 범위와 현재 한계
+## 구현 결과 {/* #담당-범위와-현재-한계 */}
 
-`CTimeManager`의 요청 구조와 보간·해제 API를 구현하고, 초기 Handle 방식에서 StringID 태그 기반으로 정리했다. 관련 이력은 `3bcafb27`의 Time Scale 초안, `aedeade8`의 태그 기반 전환, `744226b7`의 용어 통일에서 확인할 수 있다.
+`CTimeManager`의 요청 구조와 보간·해제 API를 구현하고, 초기 Handle 방식에서 StringID 태그 기반으로 정리했다.
 
 이 구조의 핵심은 전역 속도를 누가 마지막에 대입했는지가 아니라, 아직 유효한 요청이 무엇인지로 결과를 결정한다는 점이다. 연출 종료 시 자신의 요청만 해제하도록 책임을 좁혔다.
 
-다만 요청에는 객체 Handle 기반 자동 정리나 스레드 동기화가 없다. 게임 루프의 정해진 시점에 호출하고 상태 종료 시 정리해야 한다. 사운드의 재생 정지·피치 변경도 자동 처리하지 않으며, 입력 차단과 UI 정책까지 포함하는 Pause 시스템은 별도 설계 대상이다.
-
-### 구현 근거
-
-- `Engine/Public/TimeManager.h`, `Engine/Private/TimeManager.cpp`: 요청 데이터, 보간, 합성, 복구 API.
-- `Engine/Private/BaseApp.cpp`, `GameInstance.cpp`, `GameObjectManager.cpp`: Frame 시간과 Fixed Step 전달, 객체별 시간 영역 선택.
-- `Engine/Private/LevelManager.cpp`: 레벨 교체 시 전체 요청 정리.
-- `Client/Private/Player_AncientAttack_State.cpp`: 발사 전 슬로모션과 상태 종료 시 복구.
+게임 루프에서 요청을 추가하고, 연출이나 상태가 종료될 때 자신의 요청을 해제한다. 사운드의 정지·피치 변경은 별도로 처리한다.

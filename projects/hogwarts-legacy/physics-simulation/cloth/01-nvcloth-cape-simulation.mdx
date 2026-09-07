@@ -222,14 +222,6 @@ Manager GUI에서는 Backend, Fabric·Cloth Handle, Particle·Constraint·Virtua
 
 Tracy Zone은 Fabric 생성, Cloth 생성, Animation Constraint 갱신, Simulation의 Begin·Chunk·End, CPU Particle Upload를 각각 나눈다. 전체 `NvCloth` 비용만 보는 대신 Cook·Solver·Upload 중 어느 단계가 병목인지 확인할 수 있다.
 
-현재 구조의 한계도 분명하다.
-
-- Cloth Collision은 Bone 기반 Primitive Rig 중심이며 PhysX Scene 전체와 자동으로 충돌하지 않는다.
-- 지면 Raycast로 동적 Ground Plane을 만드는 기능은 검토만 했고 현재 구현에는 포함하지 않았다.
-- CPU 검증 복구는 잘못된 상태의 확산을 막는 안전망이지 연속 충돌 검사의 대체물이 아니다.
-- Self Collision, Virtual Particle, Solver Frequency는 품질과 비용을 함께 올리므로 모든 Cloth에 동일하게 켜면 안 된다.
-- Authored Weight 형식은 마련했지만 Hair Card·통메시별 저작 파이프라인과 머리카락 전용 Attachment는 후속 과제다.
-
 ## 구현 결과 {/* #결과 */}
 
 물리용 저해상도 메시와 화면용 고해상도 메시를 분리하면서도 Barycentric Mapping으로 하나의 자연스러운 망토처럼 렌더했다. Character Animation은 Particle별 Motion Constraint로, 몸과 빗자루는 Backstop과 Bone Collision Rig로 연결했다.

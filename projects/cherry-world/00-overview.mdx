@@ -27,8 +27,6 @@ C\*erry World는 기존 C\*erry의 걷기 기능인 C\*erry Walk를 기반으로
 | 주요 기술 | Swift, Android, JavaScript, TypeScript, webpack, WebView, Spring Boot, PostgreSQL |
 | 주요 대응 | 걸음·보상 정책 검토 및 개선 작업, Apple 로그인 마이그레이션 |
 
-기간은 프로젝트를 정리하기 위한 경력 구간이다. 기능별 최초 개발일과 실제 배포일은 서로 다르며, C\*erry Walk에서 시작된 공통 작업을 전부 이 기간에 처음 만든 것으로 소개하지 않는다.
-
 ## 추천 문서 {/* #먼저-읽을-대표-사례 */}
 
 ### 1. Apple 로그인 마이그레이션과 장애 대응
@@ -45,7 +43,7 @@ C\*erry World는 기존 C\*erry의 걷기 기능인 C\*erry Walk를 기반으로
 
 [증상 완화에서 자원 수명 분석까지 읽기](/projects/cherry-world/native-thread-exhaustion)
 
-기존 서비스의 자원 누적을 추적한 경험이다. 최종 수정 코드와 장시간 재검증 자료는 확인되지 않아, 완전 해결 실적이 아닌 원인 분석 사례로 소개한다.
+기존 타이머 로직의 자원 누적을 덤프로 추적했다.
 
 ## 관련 문서 {/* #관심-분야에-따라-이어-읽기 */}
 
@@ -54,17 +52,17 @@ C\*erry World는 기존 C\*erry의 걷기 기능인 C\*erry Walk를 기반으로
 | 비동기 설계 | [Native–JS 브리지 개선](/projects/cherry-world/native-js-bridge) | 콜백 보조 방식과 UUID·Promise 설계·예제, C\*erry Walk에서 시작된 문제 |
 | 광고 설계·연계 | [광고 공통 계층 설계와 SDK·오퍼월 연계](/projects/cherry-world/ads-offerwall-integration) | 전면·배너 Commander, 사업자별 구현체와 콜백 구조, 오퍼월 보상 연계 |
 | 실행 환경 | [iOS WebView 성능·문법 호환성 분석](/projects/cherry-world/ios-webview-compatibility) | Safari의 CSS 성능 문제와 오래된 iPhone의 JS 문법 미지원 구분 |
-| 네트워크 사용량 | [Android WebView 캐시 정책 개선](/projects/cherry-world/webview-cache-policy) | 캐시 모드와 생성 시 삭제 로직 수정, 당시 비교 기록의 해석 범위 |
+| 네트워크 사용량 | [Android WebView 캐시 정책 개선](/projects/cherry-world/webview-cache-policy) | 캐시 모드·삭제 시점 변경과 데이터 사용량 비교 |
 | 개발 환경 | [TypeScript 점진 도입](/projects/cherry-world/incremental-typescript) | C\*erry World 실제 사용, 기존 JS와의 연결·빌드·디버깅 안내 |
 | 서비스 정책 | [걸음 수와 보상 책임 분리](/projects/cherry-world/step-reward-policy) | 다계정·초기화 문제와 변경안 검토, 최종 정책·배포 여부는 별도 |
 
 ## 앱 이전 작업의 실제 기록
 
-2023년 1월 「앱 이전기」에는 분사에 따라 기존 C\*erry 앱의 개발자 계정을 이전한 과정도 남겼다. 이는 신규 C\*erry World 앱을 이전했다는 뜻이 아니라, 같은 시기의 기존 앱 운영·이전 업무다. 계정 이전과 외부 연계 기능 점검이 이어지는 맥락을 보여 주는 자료로 함께 정리한다.
+분사 과정에서는 기존 C\*erry 앱의 개발자 계정을 이전하는 운영 업무도 맡았다. 아래는 2023년 1월에 남긴 이전 신청과 완료 안내다.
 
 [![Google Play 앱 이전 완료를 안내한 2023년 1월 6일 메일](/img/work-evidence/android-app-transfer-complete.png)](/img/work-evidence/android-app-transfer-complete.png)
 
-*당시 보관한 Google Play의 이전 완료 안내.* 수신·참조 계정과 문의 식별번호를 가렸다. 완료 안내에도 연결된 개발자 프로젝트와 광고 SDK를 별도로 확인하라는 내용이 있다. 이 메일만으로 모든 연계 기능의 검증까지 끝났다고 해석하지 않는다.
+*당시 보관한 Google Play의 이전 완료 안내.* 수신·참조 계정과 문의 식별번호를 가렸다. 완료 안내에도 연결된 개발자 프로젝트와 광고 SDK를 별도로 확인하라는 내용이 있다. 계정 이전과 별개로 연계 기능의 동작도 점검해야 했다.
 
 <details>
 <summary>Google Play 앱 이전 신청 화면</summary>
@@ -75,14 +73,10 @@ C\*erry World는 기존 C\*erry의 걷기 기능인 C\*erry Walk를 기반으로
 
 </details>
 
-Apple 쪽은 앱 이전 이후 로그인 식별정보 문제가 발생했다. [Apple 로그인 마이그레이션 문서](/projects/cherry-world/apple-login-migration)에서 이전 화면과 실제 장애 대응을 나누어 설명한다. 이 기록은 당시 작업 증빙이며 현재 스토어 이전 절차 안내가 아니다.
+앱 이전 이후 발생한 로그인 식별정보 문제와 대응 과정은 [Apple 로그인 마이그레이션](/projects/cherry-world/apple-login-migration)에 정리했다.
 
-## 프로젝트 간 경계
+## 역할 분담과 관련 문서 {/* #프로젝트-간-경계 */}
 
-iOS 개발을 전담하고 Android·iOS 광고 연계를 담당했으며, 동료와 화면·서버 변경을 조율했다. 두 플랫폼과 공통 백엔드 전체를 단독 개발한 프로젝트는 아니다.
+iOS 앱 개발과 두 플랫폼의 광고 연계를 담당했다. Android의 기본 앱 기능과 공통 백엔드는 각 담당자와 협업했다.
 
 서비스의 출발점은 [C\*erry Walk 배경](/projects/cherry/cherry-work-origin), 같은 회사 재직 중 수행한 [C\*erry Run DB 개선](/projects/cherry/postgresql-query-plan)과 [팀 공통 정기 배포](/projects/cherry/release-branch-management)는 C\*erry 문서에서 다룬다.
-
-## 작성 근거와 확인 범위 {/* #작성-근거 */}
-
-당시 Native–JS 설명 자료, 2023년 5월 걸음 정책 자료, 2023년 1월 Apple 로그인 이전 기록과 처리 결과, 광고 연계 노트를 바탕으로 작성했다. Apple 로그인 마이그레이션의 프로젝트 귀속과 C\*erry Walk의 기원은 담당자 회고를 반영했다. 원본 계정·로그·사용자 데이터는 공개하지 않는다.

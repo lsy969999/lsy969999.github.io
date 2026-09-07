@@ -218,16 +218,9 @@ CCT별 Behavior Callback은 다음 이동 정책을 선택한다.
 
 여러 CCT가 동시에 이동할 때는 `PxControllerManager::computeInteractions()`를 Fixed Step 전에 호출한다. 전역 Toggle로 기능을 끌 수 있고, CCT 두 개의 Layer와 Query Mask가 서로 허용될 때만 Interaction을 계산한다.
 
-## 한계와 개선 방향 {/* #선택한-설계와-한계 */}
+## 구현 결과 {/* #선택한-설계와-한계 */}
 
 이 구조는 물리 Simulation, Scene Query, CCT 이동을 같은 Layer 체계로 표현하면서도 각자의 필터 의미는 분리한다. PhysX Pointer를 외부에 장기 보관하지 않고 Handle과 값 데이터로 경계를 만든 점이 객체 생명주기 안정성의 핵심이다.
-
-현재 남아 있는 개선점은 다음과 같다.
-
-- Scene Query API 자체는 `simulate()` 진행 중 호출을 막는 명시적인 상태 검사를 제공하지 않는다. Query 호출 구간을 Main·Fixed Thread의 안전한 시점으로 제한하는 검증을 추가할 수 있다.
-- RaycastMultiple과 SweepMultiple은 요청마다 임시 Vector Buffer를 만든다. 반복 호출이 많은 경로는 재사용 Scratch Buffer 또는 Small Buffer를 고려할 수 있다.
-- CCT Interaction Filter는 CCT Actor가 Shape 하나를 가진다는 PhysX Controller 전제를 사용한다. Engine에서 복합 CCT를 지원한다면 Filter 정책을 다시 정의해야 한다.
-- Layer 이름은 Client에서 등록하지만 충돌 정책은 각 Descriptor에 분산되어 있다. 규모가 커지면 검증 가능한 Collision Matrix Asset을 도입할 수 있다.
 
 ## 구현 결과 {/* #결과 */}
 

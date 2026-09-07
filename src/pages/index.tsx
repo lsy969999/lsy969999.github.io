@@ -7,16 +7,20 @@ import styles from './index.module.css';
 export default function Home(): React.JSX.Element {
   return (
     <Layout
-      title="Portfolio"
-      description="Limits1214의 게임 클라이언트·엔진 개발 포트폴리오">
+      title="임성윤 | Portfolio"
+      description="임성윤(Limits1214)의 게임 클라이언트·엔진 개발 포트폴리오">
       <main className={styles.page}>
         <section className={styles.hero}>
           <p className={styles.eyebrow}>C++ GAME CLIENT · ENGINE</p>
           <Heading as="h1" className={styles.title}>
-            Limits1214
+            임성윤
           </Heading>
+          <p className={styles.nickname}>Limits1214</p>
+          <p className={styles.aspiration}>
+            게임 전체를 이해하는 개발자가 되고 싶습니다.
+          </p>
           <p className={styles.description}>
-            포트폴리오를 새로운 구조로 구성하고 있습니다.
+            배우고 고민하고 경험한 것을 기록합니다.
           </p>
           <div className={styles.actions}>
             <Link

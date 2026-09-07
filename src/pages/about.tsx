@@ -6,36 +6,30 @@ import styles from './section.module.css';
 
 export default function About(): React.JSX.Element {
   return (
-    <Layout title="About" description="Limits1214 개발자 소개">
+    <Layout title="About" description="임성윤의 개발 경력과 프로젝트 이력">
       <main className={styles.page}>
         <div className={styles.content}>
           <Heading as="h1" className={styles.title}>
             About
           </Heading>
           <p className={styles.description}>
-            2020년 KOSMO JAVA Backend 과정을 시작으로 2020년 10월부터 2024년
-            1월까지 실무 경험을 쌓았습니다. 한국방송통신대학교 컴퓨터과학과에
-            편입·졸업했으며, 이후 C++ 기반 게임 클라이언트와 엔진 개발로
-            영역을 확장했습니다.
+            웹 서비스와 모바일 앱을 개발·운영했습니다. 지금은 게임 개발을
+            공부하며, 게임플레이부터 프레임워크와 개발 도구까지 만들어 보고
+            있습니다.
+          </p>
+          <p className={styles.description}>
+            게임 전체를 이해하는 개발자가 되고 싶습니다. 맡은 기능이 다른
+            시스템과 어떻게 연결되고, 실제 플레이에 어떤 영향을 주는지까지
+            살피며 개발하고자 합니다. 익숙한 기술에 머무르지 않고 필요한 것을
+            배우며, 함께 게임을 완성하는 데 기여하고 싶습니다.
           </p>
 
           <section aria-labelledby="journey-title">
             <Heading as="h2" id="journey-title" className={styles.sectionTitle}>
-              Journey
+              이력
             </Heading>
             <CareerTimeline />
           </section>
-
-          <section className={styles.projectSection} aria-labelledby="qualifications-title">
-            <Heading as="h2" id="qualifications-title" className={styles.sectionTitle}>
-              자격증
-            </Heading>
-            <ul className={styles.projectList}>
-              <li>정보처리기사 · <time dateTime="2025-12-24">2025.12.24</time></li>
-              <li>정보처리산업기사 · <time dateTime="2020-08-28">2020.08.28</time></li>
-            </ul>
-          </section>
-
         </div>
       </main>
     </Layout>

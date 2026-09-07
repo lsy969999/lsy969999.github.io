@@ -25,7 +25,7 @@ tags:
 | iOS | 기기·시뮬레이터 target별 staticlib | Xcode 앱에서 링크하고 리소스를 번들에 포함 |
 | Web | WASM 모듈과 JavaScript 바인딩 | HTML·에셋과 함께 GitHub Pages 게시 |
 
-현재 저장소에서 자동 게시 워크플로로 확인되는 것은 Web이다. Android·iOS 빌드 구성이 있다는 사실과 모바일 서명·스토어 업로드까지 CI에서 자동화됐다는 주장은 구분한다.
+Web은 워크플로로 자동 게시한다. Android·iOS는 빌드 구성을 마련했으며, 서명과 스토어 업로드는 별도 작업이다.
 
 ## 공통 빌드 프로파일과 feature
 
@@ -53,7 +53,7 @@ cargo ndk -t arm64-v8a -o ./jniLibs build --release
 
 Android release는 minify를 켠다. Rust JNI 코드는 문자열 이름으로 MainActivity 메서드를 호출하므로, 클래스·메서드 이름을 보존하는 규칙이 필요하다.
 
-프로젝트의 ProGuard 설정은 MainActivity의 public 멤버와 RustBinding의 static 메서드를 보존하도록 작성돼 있다. 앞선 FFI 문서의 메서드 시그니처 계약이 패키징 단계에서도 유지되도록 연결한 부분이다. 실제 release 기기 실행을 새로 검증한 결과는 아니다.
+프로젝트의 ProGuard 설정은 MainActivity의 public 멤버와 RustBinding의 static 메서드를 보존하도록 작성돼 있다. 앞선 FFI 문서의 메서드 시그니처 계약이 패키징 단계에서도 유지되도록 연결한 부분이다.
 
 ## iOS: Xcode 설정에 맞춘 Rust target 선택
 
@@ -75,7 +75,7 @@ Xcode는 target별 라이브러리 검색 경로와 `-lios` 링크 옵션을 가
 
 현재 스크립트는 Debug이면 debug 산출물을 만들지만, Xcode의 Debug·Release 라이브러리 검색 경로는 모두 target 하위 `release`를 가리킨다. Debug 빌드를 해도 해당 라이브러리를 찾지 못하거나 기존 release 산출물을 참조할 가능성이 있는 구성이다.
 
-따라서 기기·시뮬레이터·Debug·Release를 분기하는 스크립트를 작성한 성과와, 모든 조합의 링크가 검증됐다는 것은 구분한다. XCFramework 생성이나 archive·서명·스토어 업로드를 이 스크립트가 자동화한 것도 아니다.
+스크립트는 기기·시뮬레이터·Debug·Release 빌드를 분기한다. XCFramework 생성, archive·서명·스토어 업로드는 별도 작업이다.
 
 ## Web: 컴파일·바인딩·최적화
 
@@ -101,8 +101,6 @@ Cargo가 만든 `web.wasm`을 wasm-bindgen이 웹에서 import할 JavaScript와 
 
 현재 총량은 HTML에 `16,244,146`바이트로 고정돼 있다. 이는 현재 산출물 크기를 실측해 이 문서에서 보증한 수치가 아니라 코드에 들어 있는 기준값이다. 바이너리 크기가 달라지면 진행률이 실제와 어긋날 수 있다.
 
-생성 코드 수정도 정해진 문자열에 의존한다. wasm-bindgen 출력 형태가 바뀌었을 때 치환 성공 여부를 별도로 검사하지 않는다. fetch 실패는 로그를 남기지만 이후 Response 사용을 중단하는 복구 흐름도 부족하다. 파일 크기 전달과 생성 코드 의존성을 보강할 경계다.
-
 ## 두 렌더 빌드와 실제 실행 선택
 
 현재 워크플로는 WebGL2와 WebGPU를 모두 빌드한다. 하지만 `web/index.html`에서 `navigator.gpu`를 검사해 선택하는 분기는 주석 처리돼 있고, 활성 코드는 `./wasm_webgl2/web.js`만 import한다.
@@ -113,27 +111,8 @@ Cargo가 만든 `web.wasm`을 wasm-bindgen이 웹에서 import할 JavaScript와 
 
 워크플로는 `master` push에 반응하고 Ubuntu runner에서 실행한다. Binaryen의 지정 버전과 wasm-bindgen-cli 0.2.99를 준비한 뒤 WASM target을 추가하고 두 Web 빌드 스크립트를 순서대로 실행한다.
 
-이후 공통 assets를 `web/`으로 복사하고 `peaceiris/actions-gh-pages`에 `publish_dir: ./web`을 넘긴다. 전용 배포 폴더로 필요한 파일만 모으는 방식이 아니라 web 디렉터리 전체를 게시하도록 설정돼 있다. 따라서 HTML·산출물·에셋 외의 파일도 게시 대상에 포함될 수 있는 구성이다.
+공통 assets를 `web/`으로 복사하고 `peaceiris/actions-gh-pages`에 `publish_dir: ./web`을 전달해 배포한다.
 
-이번 작업에서는 저장소 설정만 확인했다. 실제 Pages 게시 이력·현재 접속 가능 여부·브라우저별 실행 결과를 새로 검증하거나 push·배포를 실행하지 않았다.
-
-## 빌드 실패와 오래된 산출물의 경계
-
-iOS의 Xcode용 스크립트는 실패 시 중단하도록 설정하지만, Android·Web의 짧은 빌드 스크립트는 같은 실패 중단 정책이 명시돼 있지 않다. 중간 Cargo·바인딩 생성이 실패해도 뒤의 복사나 출력 명령으로 이어질 여지가 있다. 기존 산출물이 남아 있으면 이번 빌드 결과와 혼동할 수 있다.
-
-Android의 재귀 복사는 삭제된 파일을 대상에서 정리하는 동기화가 아니다. Web도 출력 디렉터리 정리 명령이 주석 처리돼 있다. 또한 Web은 sed에 대해서는 macOS·Linux를 분기하지만 마지막 크기 출력은 macOS 형태의 `stat -f %z`라 Ubuntu 워크플로와의 일관성을 점검해야 한다.
-
-후속 보강은 실패 즉시 중단, configuration과 링크 경로 일치, 필요한 파일만 담는 배포 디렉터리, 오래된 산출물 정리, 도구 버전과 lockfile 고정, 빌드 후 smoke test로 나눌 수 있다. 이번 문서 작성에서는 관련 스크립트나 프로젝트 설정을 변경하지 않았다.
-
-## 결과와 확인 범위 {/* #구현-결과와-본인-작업-근거 */}
+## 구현 결과 {/* #구현-결과와-본인-작업-근거 */}
 
 공통 Rust 앱을 각 플랫폼이 요구하는 라이브러리·WASM 산출물로 만들고, 에셋과 런타임을 실제 패키징 위치에 연결했다. 특히 Web은 바인딩 생성·최적화·다운로드 진행률·Pages 게시까지 하나의 흐름으로 구성했다.
-
-| 커밋 | 확인한 작업 |
-| --- | --- |
-| `6fd44aa` | Web crate와 WebGL2·WebGPU 빌드 스크립트 추가 |
-| `08fa192` | 생성 바인딩의 로딩 함수 연결과 다운로드 진행률 표시 |
-| `8cdaccc` | Pages 배포 트리거 브랜치를 master로 변경 |
-| `3a3a7be` | 페이지 실행 경로를 WebGL2 고정으로 변경 |
-
-주요 근거는 루트·플랫폼 `Cargo.toml`, `android/build_android.sh`, `android/build.rs`, Gradle·manifest·ProGuard 설정, `ios/build.ios.sh`, `ios/xcode/build_rust_deps.sh`, Xcode 프로젝트 설정, `web/build.webgl2.sh`, `web/build.webgpu.sh`, `web/index.html`, `.github/workflows/deploy.yml`이다. 코드 구성에 대한 분석이며 모바일 패키지 빌드·서명·실기기·WASM 빌드·외부 배포를 새로 실행한 결과는 아니다.

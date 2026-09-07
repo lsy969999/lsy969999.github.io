@@ -6,7 +6,7 @@ import styles from './styles.module.css';
 
 export default function CareerTimeline(): React.JSX.Element {
   return (
-    <ol className={styles.timeline} aria-label="개발 경력 타임라인">
+    <ol className={styles.timeline} aria-label="경력·교육·프로젝트·자격증 이력">
       {timeline.map((entry, index) => (
         <li className={styles.item} key={`${entry.period}-${entry.title}`}>
           <p className={styles.period}>{entry.period}</p>
@@ -14,10 +14,10 @@ export default function CareerTimeline(): React.JSX.Element {
             <span className={styles.marker}>{index + 1}</span>
           </div>
           <article className={styles.card}>
-            <Heading as="h2" className={styles.title}>
+            <Heading as="h3" className={styles.title}>
               {entry.title}
             </Heading>
-            <p className={styles.summary}>{entry.summary}</p>
+            {entry.summary && <p className={styles.summary}>{entry.summary}</p>}
             {entry.links && entry.links.length > 0 && (
               <div className={styles.links} aria-label={`${entry.title} 관련 프로젝트`}>
                 {entry.links.map((link) => (

@@ -129,8 +129,6 @@ Layer는 GameObject Pointer가 아니라 Handle 배열을 보관한다. Slot Ind
 - Query 결과에는 즉시 사용 Pointer와 보관 가능한 Handle을 함께 제공한다.
 - Object Pool은 객체를 Manager 밖으로 꺼내지 않고 Managed Update와 활성 상태를 전환한다.
 
-## 결과와 한계
+## 구현 결과 {/* #결과와-한계 */}
 
 외부 참조가 객체 파괴 이후 조용히 다른 메모리를 사용하는 대신, 조회 시점에 명확히 `nullptr`로 실패하게 됐다. 동시에 지연 파괴, Layer Reset, Pooling이 하나의 생명주기 규칙을 공유하게 됐다.
-
-Generation도 유한한 32-bit 값이므로 같은 Slot이 2^32회 재사용되면 순환할 수 있다. 실사용 범위에서는 충분히 크지만 이론적으로 영구 고유 ID는 아니다. 또한 같은 프레임 안에서만 사용하는 지역 Pointer까지 무조건 Handle로 바꾸기보다, “수명을 넘어 저장되는 참조”에 Handle을 적용하는 기준이 중요하다.

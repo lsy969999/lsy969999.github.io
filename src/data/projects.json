@@ -3,7 +3,7 @@
     "slug": "hogwarts-legacy",
     "title": "Hogwarts Legacy",
     "period": "2026.06 – 2026.08",
-    "description": "DirectX 11 자체 엔진으로 제작한 7인 팀 3D 액션 RPG 프로젝트입니다.",
+    "description": "C++20·DirectX 11 기반 7인 팀 프로젝트에서 팀장을 맡아 프레임워크와 물리 시스템을 구성하고, 망토 시뮬레이션·물리 콘텐츠·디버그 도구를 구현했습니다.",
     "role": "팀장 · 프레임워크 · 물리",
     "teamSize": "7명",
     "platform": "Windows x64",
@@ -36,7 +36,7 @@
     "slug": "minecraft",
     "title": "Minecraft",
     "period": "2026.04 – 2026.06",
-    "description": "C++20·DirectX 11 자체 엔진으로 절차적 복셀 월드와 생존 플레이를 구현한 1인 프로젝트입니다.",
+    "description": "C++20·DirectX 11 자체 엔진으로 절차적 복셀 월드, 비동기 청크 로딩, 블록 설치·파괴와 생존 게임플레이를 구현한 1인 프로젝트입니다.",
     "role": "프레임워크 · 복셀 월드 · 렌더링 · 게임플레이",
     "teamSize": "1명",
     "platform": "Windows x64",
@@ -64,43 +64,115 @@
     "slug": "dave-the-diver",
     "title": "DAVE THE DIVER",
     "period": "2026.01 – 2026.03",
-    "description": "DirectX 9 기반 팀 프로젝트의 팀장으로서 수행한 개발 관리와 게임 클라이언트 구현 경험을 정리합니다.",
+    "description": "DirectX 9 기반 4인 팀 프로젝트에서 팀장을 맡아 프레임워크를 보강하고, UI·물고기 행동·포획과 Spine 애니메이션 연동을 구현했습니다.",
     "role": "팀장 · 프레임워크 보강 · UI · 물고기 게임플레이",
     "teamSize": "4명",
-    "platform": "Windows"
+    "platform": "Windows",
+    "tasks": [
+      {
+        "title": "프레임워크와 객체 수명 관리",
+        "description": "Asset Manager, 자체 참조 카운팅, 객체 계층과 컴포넌트 부착 API를 보강하고 씬 전환·로딩 및 충돌 디버그 기능을 구성했습니다."
+      },
+      {
+        "title": "UI와 플레이 데이터 연동",
+        "description": "iDiver 장비 업그레이드, 스마트폰 앱 전환, 잠수 결과·인벤토리와 아이템 획득 UI를 구현하고 플레이어·아이템 담당자의 로직에 연결했습니다."
+      },
+      {
+        "title": "물고기 동작과 Spine 연동",
+        "description": "물고기의 행동·포획 흐름을 구현하고 Spine 런타임의 애니메이션 결과를 DirectX 9 정점·인덱스 버퍼로 연결했습니다."
+      },
+      {
+        "title": "에셋 추출과 스프라이트 작업",
+        "description": "AssetRipper로 원작 에셋을 추출하고 Aseprite로 스프라이트 작업을 진행해 게임 리소스로 사용했습니다."
+      }
+    ]
   },
   {
     "slug": "sanabi",
     "title": "SANABI",
     "period": "2025.11 – 2025.12",
-    "description": "SANABI 관련 개발 기록과 기술 사례를 정리합니다.",
+    "description": "Win32 API·GDI 기반 1인 프로젝트로 와이어 이동과 전투·애니메이션, 적 AI와 보스 패턴, 맵 에디터를 구현하고 프레임워크를 보강했습니다.",
     "role": "게임플레이 · 애니메이션 · 맵 에디터 · 프레임워크 보강",
     "teamSize": "1명",
-    "platform": "Windows"
+    "platform": "Windows",
+    "tasks": [
+      {
+        "title": "와이어 이동과 플레이어 액션",
+        "description": "그래플·스윙 이동과 처형·폭탄 상호작용을 구현하고 플레이어 상태에 맞춰 애니메이션과 사운드를 연결했습니다."
+      },
+      {
+        "title": "적 행동과 전투 진행",
+        "description": "일반 적 AI와 불새 패턴, 트리거 기반 전투 구간 및 클리어 흐름을 구현했습니다."
+      },
+      {
+        "title": "맵 편집과 런타임 보강",
+        "description": "타일·충돌 영역·객체 배치를 저장하고 불러오는 맵 에디터를 만들고, 스크롤·입력 갱신·화면 밖 렌더 생략과 디버그 패널을 보강했습니다."
+      },
+      {
+        "title": "에셋 추출과 스프라이트 작업",
+        "description": "AssetStudio로 원작 에셋을 추출하고 Aseprite로 스프라이트 작업을 진행해 게임 내 애니메이션과 배치에 사용했습니다."
+      }
+    ]
   },
   {
     "slug": "tetris",
     "title": "Tetris",
     "period": "2025.06 – 2025.08",
-    "description": "Rust 게임 코어를 Android·iOS·Web과 FFI로 연결하고, WebSocket 기반 웹 멀티플레이를 구현한 경험을 정리합니다.",
+    "description": "Rust 게임 코어와 플랫폼 연계를 구성하고, WebAssembly 웹 클라이언트·WebSocket 멀티플레이·Three.js 보드 렌더링을 구현한 1인 프로젝트입니다.",
     "role": "게임 코어 · 웹 클라이언트 · 멀티플레이 서버 · 플랫폼 연계",
     "teamSize": "1명",
-    "platform": "Android · iOS · Web"
+    "platform": "Android · iOS · Web",
+    "tasks": [
+      {
+        "title": "Rust 공통 게임 코어",
+        "description": "이동·회전·벽 킥·줄 제거 규칙과 단위 테스트를 작성하고, Rust 서버와 WebAssembly 클라이언트가 같은 보드 코어를 사용하도록 구성했습니다."
+      },
+      {
+        "title": "WebSocket 멀티플레이",
+        "description": "액션 복제와 보드 스냅샷 동기화, 로비·방·게임 세션 전환 및 배틀 공격 큐를 구현했습니다."
+      },
+      {
+        "title": "웹 렌더링과 입력",
+        "description": "Three.js 인스턴싱으로 여러 참가자의 보드를 그리고, 키보드·모바일 터치 입력과 고정 tick 게임 루프를 연결했습니다."
+      },
+      {
+        "title": "인증과 서비스 배포",
+        "description": "게스트 로그인과 JWT 세션을 게임 연결에 적용하고 웹·인증 API·WebSocket 서버의 빌드 및 배포 경로를 구성했습니다."
+      }
+    ]
   },
   {
     "slug": "lucky-ball",
     "title": "Lucky Ball",
     "period": "2024.10 – 2025.01",
-    "description": "Rust와 Bevy 엔진으로 구현한 게임을 Android·iOS·Web 환경과 FFI로 연결한 크로스 플랫폼 개발 경험을 정리합니다.",
+    "description": "Rust·Bevy·Rapier로 공 혼합·포착·배출과 추첨 규칙·기록 UI를 구현하고, FFI로 Android·iOS·Web에 연결한 1인 물리 추첨 프로젝트입니다.",
     "role": "게임플레이 · 물리 · UI · 플랫폼 연계",
     "teamSize": "1명",
-    "platform": "Desktop · Android · iOS · Web"
+    "platform": "Desktop · Android · iOS · Web",
+    "tasks": [
+      {
+        "title": "Bevy 공통 앱 구조",
+        "description": "추첨 장치와 UI를 Plugin·Component·Resource·Event로 구성하고 플랫폼별 진입점에서 공통 게임 코드를 사용하도록 연결했습니다."
+      },
+      {
+        "title": "물리 기반 추첨 장치",
+        "description": "Rapier 기반 공 혼합·포착·운반·배출을 구현하고 센서·Tween·타이머로 추첨 단계와 재혼합을 제어했습니다."
+      },
+      {
+        "title": "규칙 편집과 추첨 기록 UI",
+        "description": "프리셋·사용자 추첨 규칙을 편집하고 결과를 저장·조회·삭제하는 화면과 페이지 목록을 구현했습니다."
+      },
+      {
+        "title": "플랫폼 연계와 빌드",
+        "description": "JNI·Swift C ABI·wasm-bindgen으로 플랫폼별 저장소와 콜백을 연결하고 모바일 패키징과 Web 배포를 구성했습니다."
+      }
+    ]
   },
   {
     "slug": "flappy-bird",
     "title": "Flappy Bird",
     "period": "2024.08 – 2024.09",
-    "description": "Rust·Bevy·Avian2D로 한 판의 게임 흐름을 구현하고 모바일·Web 실행 환경에 연결한 1인 Flappy Bird 클론 프로젝트입니다.",
+    "description": "Rust·Bevy·Avian2D로 입력·충돌·득점과 결과 화면을 구현하고, FFI로 최고 점수 저장을 모바일·Web 환경에 연결한 1인 Flappy Bird 클론 프로젝트입니다.",
     "role": "게임플레이 · UI·애니메이션 · 플랫폼 연계",
     "teamSize": "1명",
     "platform": "Desktop · Android · iOS · Web",
@@ -216,6 +288,16 @@
     "slug": "hdbank",
     "title": "HDBANK",
     "period": "2020.08",
-    "description": "KOSMO 파이널 프로젝트에서 수행한 Spring·MyBatis 기반 계좌이체 및 JSP 화면 구현 경험을 정리합니다."
+    "description": "KOSMO 과정의 한 달간 파이널 팀 프로젝트에서 Spring·MyBatis 기반 계좌이체 기능과 JSP 화면을 구현했습니다.",
+    "tasks": [
+      {
+        "title": "계좌이체 기능",
+        "description": "Spring·MyBatis 기반 계좌이체 기능을 구현했습니다."
+      },
+      {
+        "title": "JSP 화면 구현",
+        "description": "JSP 화면을 구현하고 백엔드 기능과 연결했습니다."
+      }
+    ]
   }
 ]

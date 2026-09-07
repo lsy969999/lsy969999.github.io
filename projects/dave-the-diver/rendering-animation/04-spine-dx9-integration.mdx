@@ -19,7 +19,7 @@ tags:
 
 물고기의 몸과 지느러미가 움직이는 애니메이션을 자체 DirectX 9 엔진에서 재생해야 했다. 같은 어종의 데이터를 매번 읽지 않으면서도, 개체별로 유영·사망 등 다른 애니메이션을 재생할 수 있어야 했다.
 
-Spine C++ 런타임을 엔진의 Asset·Component·Buffer 구조에 연결했다. 애니메이션 평가와 변형 정점 계산은 Spine이 제공하고, 본인은 파일·텍스처 로딩 연결, 인스턴스 구성, DirectX 정점 변환과 버퍼 업로드, 물고기 상태와의 연결을 구현했다. 원본 애니메이션 제작이나 Spine의 스키닝 알고리즘 자체를 구현한 것은 아니다.
+Spine C++ 런타임을 엔진의 Asset·Component·Buffer 구조에 연결했다. 애니메이션 평가와 스키닝 계산은 Spine에 맡기고, 파일·텍스처 로딩, 인스턴스 구성, DirectX 정점 변환·업로드와 물고기 상태 연동을 구현했다.
 
 ## 공유 데이터와 개체별 상태
 
@@ -48,7 +48,7 @@ Spine C++ 런타임을 엔진의 Asset·Component·Buffer 구조에 연결했다
 
 엔진 텍스처 연결은 `spine::TextureLoader`를 상속한 `CMySpineTextureLoader`에서 처리한다. Atlas가 요청한 이미지 경로를 `CAssetTexture`에 전달하고, 이미지 크기를 AtlasPage에 기록한다. 텍스처 키는 파일명 앞에 `SpineTex_`를 붙여 만든다.
 
-이 로더는 텍스처 이름 한 개를 멤버에 보관하며, 렌더 경로도 그 이름으로 텍스처 하나를 바인딩한다. 여러 Atlas Page를 순회하며 페이지별로 Draw를 나누는 범용 Spine 렌더러는 아니다. 서로 다른 폴더의 동일 파일명과 다중 페이지 리소스는 추가 처리가 필요한 경계다.
+로더는 텍스처 이름 하나를 보관하고, 렌더링할 때 그 이름으로 텍스처를 바인딩한다.
 
 ## 물고기 초기화와 버퍼 준비
 
@@ -63,7 +63,7 @@ Spine C++ 런타임을 엔진의 Asset·Component·Buffer 구조에 연결했다
 | Vertex | `VTXCOLTEX` · 위치, 색, UV |
 | Index | `INDEX16` · 16-bit Index 세 개로 삼각형 구성 |
 
-`CDynamicBuffer`는 일반 `CVIBuffer`처럼 기존 버퍼에 AddRef하여 공유하는 대신, 복제 시 새 버퍼를 준비하는 방향으로 작성했다. 물고기는 자신의 변형 정점을 다른 개체와 같은 버퍼에 덮어쓰지 않는다. 다만 Clone에서도 `Ready_Buffer()`를 호출하고 물고기 초기화에서 개수를 설정한 뒤 다시 호출하므로, 최초 유효 크기와 버퍼 재생성·해제 처리는 보강할 여지가 있다.
+`CDynamicBuffer`는 일반 `CVIBuffer`처럼 기존 버퍼에 AddRef하여 공유하는 대신, 복제 시 새 버퍼를 준비하는 방향으로 작성했다. 물고기는 자신의 변형 정점을 다른 개체와 같은 버퍼에 덮어쓰지 않는다.
 
 컴포넌트의 `ID_STATIC` 분류는 이 버퍼가 GPU에서 정적이라는 뜻이 아니다. 해당 분류로 등록해도 Prototype은 Clone되며, 실제 GPU Usage는 위 설정을 따른다. `CSpine`은 `ID_DYNAMIC`으로 등록되어 GameObject의 컴포넌트 Update를 받는다.
 
@@ -101,7 +101,7 @@ Render → MeshAttachment 변형 정점 계산 → VB 업로드 → Draw
 
 인덱스도 같은 순서로 Mesh의 삼각형을 복사하면서 `vOffset`을 더한다. 각 Mesh 내부의 로컬 Index를 하나의 버퍼에 연결하는 방식이다. 물고기 초기화에서 인덱스를 한 번 채우고, 일반 `Render_Spine()`에서는 정점만 갱신한다.
 
-따라서 초기 Attachment 구성과 연결 관계가 유지되는 애니메이션을 전제로 한다. 재생 도중 Attachment·Draw Order·정점 수가 바뀌면 초기 인덱스와 버퍼 크기가 현재 정점 배열과 맞지 않을 수 있다. 모든 Spine 애니메이션 데이터에 대응한 것으로 설명하지 않는다.
+따라서 초기 Attachment 구성과 연결 관계가 유지되는 애니메이션을 전제로 한다. 재생 도중 Attachment·Draw Order·정점 수가 바뀌면 초기 인덱스와 버퍼 크기가 현재 정점 배열과 맞지 않을 수 있다.
 
 ## 한 개체를 한 번의 Indexed Draw로 표시
 
@@ -119,39 +119,10 @@ Render → MeshAttachment 변형 정점 계산 → VB 업로드 → Draw
 
 기본 정점 색은 Skeleton·Slot·Mesh의 색을 곱하고 RGB에 `m_fDarkness`를 적용한다. Alpha에는 각 색의 Alpha를 곱한다. 피격 시에는 별도의 `m_bColorWhite`를 켜서 정점 RGB를 흰색으로 만든다.
 
-흰 정점 색만으로는 텍스처의 원래 색이 사라지지 않으므로, 물고기의 Render에서 Texture Stage의 Color 연산도 `SELECTARG2`·`DIFFUSE`로 바꾼다. 렌더 후에는 `MODULATE`로 복구한다. 색 계산과 렌더 상태를 함께 조절해 피격 플래시를 만든 것이다. 혈흔 파티클 자체의 구현은 이 문서의 기여 범위에 포함하지 않는다.
+흰 정점 색만으로는 텍스처의 원래 색이 사라지지 않으므로, 물고기의 Render에서 Texture Stage의 Color 연산도 `SELECTARG2`·`DIFFUSE`로 바꾼다. 렌더 후에는 `MODULATE`로 복구한다. 색 계산과 렌더 상태를 함께 조절해 피격 플래시를 만든 것이다. 혈흔 파티클은 별도 구현을 사용했다.
 
-## 디버깅과 사용상 주의점
+## 애니메이션 디버깅 {/* #디버깅과-사용상-주의점 */}
 
 컴포넌트 ImGui에서는 밝기를 조절하고 SkeletonData의 애니메이션 목록에서 재생 항목을 선택할 수 있다. 현재 애니메이션 이름·길이도 표시해 게임 행동과 별도로 리소스 재생을 확인하도록 했다.
 
-코드 점검에서 확인한 주요 경계는 다음과 같다.
-
-- `Get_AniStateProgress()`는 Track Time을 Animation End로 나눈 나머지 비율을 반환한다. 비반복 애니메이션 완료 여부와 같지 않으며 길이가 0인 경우도 별도 처리가 필요하다.
-- SkeletonData와 AnimationStateData는 Asset 소유이고 컴포넌트는 이를 참조한다. 살아 있는 컴포넌트보다 Asset을 먼저 Unload하지 않도록 수명 순서를 맞춰야 한다.
-- 파일 파싱 결과와 Buffer Lock 성공 여부, 실제 쓰기 정점 수에 대한 검사가 부족하다. 실패한 리소스도 안전하게 건너뛰는 범용 로더로 설명하지 않는다.
-- 초기 인덱스와 버퍼 크기, 단일 텍스처·MeshAttachment 전제를 넘어서는 리소스에는 추가 구현이 필요하다.
-
-구현의 성과는 외부 애니메이션 런타임을 자체 엔진의 수명·렌더 경로와 연결한 것이다. 비용은 개체별 애니메이션 평가, Mesh 정점 계산, 버퍼 업로드와 Draw로 나뉜다. 임시 배열 재사용은 적용했지만 실제 FPS 개선이나 처리 가능한 최대 개체 수를 측정한 결과는 아니다.
-
-## 시연·검증 자료
-
-1. 같은 어종 두 마리에서 서로 다른 애니메이션이 재생되는 장면.
-2. ImGui에서 애니메이션을 선택하고 밝기를 조절하는 장면.
-3. 유영 → 피격 흰색 표시 → 사망 애니메이션의 연결.
-4. GameObject 위치·회전과 Skeleton의 내부 움직임이 함께 적용되는 장면.
-5. 다중 Atlas Page, Attachment 변경, 잘못된 파일을 별도 한계 테스트로 확인.
-
-이번 문서는 소스·커밋 분석으로 작성했다. 게임 실행 검증, 누수 검사, 성능 측정을 새로 수행한 것으로 표시하지 않는다.
-
-## 작성 근거와 확인 범위 {/* #본인-구현-근거 */}
-
-| 본인 커밋 | 확인한 작업 |
-| --- | --- |
-| `409c904` | Spine 라이브러리 추가와 Buffer Usage·Pool 설정 확장 |
-| `362ee1f` | Spine 테스트와 동적 버퍼 구성 |
-| `832ecb1` | Spine 컴포넌트 추가 |
-| `5b14114` | 물고기 종류 확장 및 관련 렌더 코드 변경 |
-| `a823877` | Spine 흰색 피격 표시 |
-
-주요 근거는 `Engine/Code/CAssetSpine.cpp`, `CSpine.cpp`, `CDynamicBuffer.cpp`와 해당 Header, `SRClient/Code/CMainApp.cpp`의 Prototype 등록, `CFishGameObject.cpp`의 초기화·애니메이션·피격 렌더 연결이다. `CAssetSpine.cpp`와 `CSpine.cpp`의 확인된 Merge 제외 수정 이력은 본인 명의이며, 공통 물고기 파일에서 팀원이 추가한 카메라 감속·Frustum Culling은 본인 성과에 포함하지 않았다.
+외부 애니메이션 런타임을 자체 엔진의 수명·렌더 경로에 연결했다. 개체별로 애니메이션 평가와 Mesh 정점 계산, 버퍼 업로드와 Draw를 수행하며 임시 배열은 재사용하도록 했다.

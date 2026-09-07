@@ -22,7 +22,7 @@ tags:
 
 두 동작을 같은 이동 함수로 처리하지 않고 목적에 맞게 분리했다. 아씨오 공은 Dynamic RigidBody에 Force·Torque를 적용하고, 배럴은 제어 중 Kinematic으로 전환해 위치를 직접 결정한다.
 
-현재 코드에서 배럴을 던지는 기능의 이름은 `AncientThrow`다. 오푸그노와 동일한 기능으로 표기하지 않으며, 이 문서는 아씨오의 **공 조작 분기**와 고대마법의 **배럴 투척 분기**를 다룬다. 몬스터 대상 아씨오와 고대마법 번개 공격 전체를 구현 범위로 포함하지 않는다.
+배럴 투척은 `AncientThrow`로 구현했다. 아씨오의 공 조작과 고대마법의 배럴 투척을 담당했으며, 몬스터 대상 아씨오와 고대마법 번개 공격은 별도 구현이다.
 
 | 항목 | 아씨오 공 | 고대마법 배럴 투척 |
 | --- | --- | --- |
@@ -85,7 +85,7 @@ Force = Mass × Acceleration
 
 연출은 지팡이와 공을 연결하는 `AccioBallPull`, 공 주변에 붙는 `AccioBallGrab`으로 분리한다. 입력 중에는 Beam 양 끝점과 공 주변 Effect 위치를 갱신하고, 해제 후에는 각각의 Blend를 줄인 뒤 Stop한다. 정상 해제에서는 Animation과 Effect가 끝난 다음 Locomotion으로 복귀하지만, 강제 Exit에서는 조작권·상체 속도·Facing·Effect를 즉시 정리한다.
 
-현재 Effect 콜백은 State의 `this`를 캡처하므로 State 수명과 Exit 정리에 의존한다. 모든 비동기 참조가 Handle 기반이라고 설명할 수는 없다.
+Effect 콜백은 State의 `this`를 캡처하며 Exit 시점에 정리한다.
 
 ### 해제 연출 중 재입력을 잃지 않기
 
@@ -146,7 +146,7 @@ Time Scale은 `AncientThrow_PreLaunch` 태그로 요청하고 해당 요청만 �
 
 충돌하면 Hit Distance만큼 이동한 구체 중심에서 멈추고 피벗을 역보정한다. 충돌 Effect·소리는 별도의 Hit Position과 Normal을 사용한다. 비행 플래그를 먼저 해제하고 파괴 요청을 세워 중복 충돌 처리를 막는다.
 
-Sweep 반지름은 모델 Bounds의 스케일 적용 Extents 중 최솟값을 기준으로 정한다. 배럴 전체를 감싸는 보수적인 구체가 아니며, 회전하는 Convex의 모든 모서리를 정확하게 검사하는 방식도 아니다. 고속 이동 구간의 판정을 보강하되 정밀한 회전 형상 Sweep까지 해결했다고 보지는 않는다.
+모델 Bounds에 스케일을 적용한 Extents 중 최솟값을 Sweep 반지름으로 사용한다.
 
 현재 충돌 대상이 `CSkillTarget`이면 파괴 계열 판정을 전달하고 Impact Dust와 사운드를 재생한 뒤 파편 전환을 요청한다. 이후 자세 캡처·파편 생성·원본 제거는 [Runtime Object를 PhysX Debris로 전환하는 수명주기](/projects/hogwarts-legacy/physics-debris-transition)에서 별도로 다룬다.
 
@@ -158,22 +158,6 @@ Sweep 반지름은 모델 Bounds의 스케일 적용 Extents 중 최솟값을 �
 
 Hold·Flight 사운드는 배럴 Component Slot으로 관리해 각 단계에서 중지하고, Impact는 객체가 곧 제거돼도 남을 수 있도록 독립적인 사운드로 재생한다. 객체 참조가 유효한지뿐 아니라 현재 제어 단계와 종료 책임이 누구에게 있는지를 함께 관리한 것이다.
 
-## 결과와 한계 {/* #결과와-보완할-점 */}
+## 구현 결과 {/* #결과와-보완할-점 */}
 
 아씨오에는 관성과 충돌을 보존하는 힘 기반 제어를, 고대마법 투척에는 경로와 타이밍을 우선하는 Kinematic 제어를 적용했다. 공의 조작권·물리 Tick·상체 Animation을 분리했고, 배럴에서는 시각적 중심 보정과 Physics 캐시 무효화로 수동 제어와 물리 자세의 충돌을 줄였다.
-
-현재 구조에서 추가로 검토할 부분도 있다.
-
-- 배럴 선택은 전체 Layer 순회와 화면 중심 정렬 기준이다. 대상이 많아지면 후보 Registry나 공간 Query로 범위를 줄일 수 있다.
-- 배럴에는 공과 같은 제어자 Handle 기반의 배타적 획득 API가 없다. 여러 캐릭터가 같은 배럴을 조작하려면 별도의 조작권 규칙이 필요하다.
-- 끌어오기 중에는 장애물 경로 검사가 없고, 비행에는 별도 Lifetime·최대 이동 거리 종료 조건이 없다. 빗나간 배럴을 정리하는 정책이 필요하다.
-- 공의 조작 중에는 자동 Sleep을 건너뛰지만, 비조작 상태의 저속 Sleep은 공중 여부를 별도로 확인하지 않는다. 낙하 상황까지 일반화하려면 지지면 검사를 함께 검토해야 한다.
-- Cancel은 기본 Dynamic 상태로의 복구를 시도하지만 모든 Setter 결과를 검사하는 완전한 Transaction은 아니다. 실패 로그와 복구 검증을 보강할 여지가 있다.
-
-## 작성 근거와 협업 범위 {/* #구현-근거와-협업-범위 */}
-
-공의 물리 제어와 조작권은 `AccioBall.cpp`, State·상체 Animation·Effect는 `Player_AccioSkill_State.cpp`, 입력 연결은 `Player.cpp`, 경기 제약은 `AccioActivity_Base.cpp`에서 확인할 수 있다.
-
-배럴 이동·Sweep·취소는 `PropBarrel.cpp`, 시전 타이밍·대기·발사는 `Player_AncientAttack_State.cpp`에 있다. 이 State는 이전의 `Player_AcientAttack_State`에서 이름이 수정되었으므로 기여 이력은 이름 변경을 따라 확인해야 한다.
-
-주요 근거는 `257c47a0`의 AncientThrow 통합과 `ee5bc43d`의 Accio Activity 보강이다. 기존 플레이어 State·Animation 시스템에 물체 제어를 연결한 작업이며, 이후 팀원이 조정한 타이밍·공통 State 정리까지 단독 구현 범위로 포함하지 않는다.

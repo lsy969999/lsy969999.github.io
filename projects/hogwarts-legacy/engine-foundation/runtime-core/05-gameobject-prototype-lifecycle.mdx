@@ -21,6 +21,63 @@ tags:
 
 초기 구조에서는 이 단계들의 경계가 명확하지 않았다. 특히 `Initialize()` 안에서 자기 Handle로 Manager를 조회하면 아직 Slot과 Layer 등록이 끝나지 않아 `nullptr`이 반환될 수 있었다. 객체 생성과 등록, 사용 가능한 시점을 하나의 생명주기로 정리할 필요가 있었다.
 
+## 생성·소멸 경로를 제한한 스마트 포인터
+
+객체를 스마트 포인터로 보관하더라도 생성자와 소멸자가 공개돼 있으면 외부에서 `new`·`delete`로 수명을 따로 관리할 수 있다. 이를 막기 위해 구체 클래스의 생성자·소멸자를 `private`으로 두고, 상속이 필요한 기반 클래스에서는 `protected`로 제한했다. 생성은 정적 `Create()`나 Prototype의 `Clone()`을 거치고, 반환된 스마트 포인터가 소유권을 갖도록 했다.
+
+생성자 접근 제한이 임의 생성을 막는 장치라면, 커스텀 삭제자는 **소멸자를 공개하지 않고도 스마트 포인터가 객체를 정리할 수 있게 하는 장치**다. 일반 삭제자가 직접 `delete`하는 대신, 엔진 전용 삭제자가 `CEngineBase::Free()`를 호출하도록 연결했다.
+
+다음은 `Engine_Base.h`에서 수명 관리 부분만 추린 코드다.
+
+```cpp
+class CEngineBase
+{
+    friend struct tagEngineBaseDeleter;
+
+protected:
+    CEngineBase() = default;
+    virtual ~CEngineBase() {}
+    virtual void Free() { delete this; }
+};
+
+struct tagEngineBaseDeleter
+{
+    void operator()(CEngineBase* base) const
+    {
+        if (base)
+            base->Free();
+    }
+};
+
+using ENGINE_BASE_DELETER = tagEngineBaseDeleter;
+
+template <typename T>
+using UPtr = std::unique_ptr<T, ENGINE_BASE_DELETER>;
+```
+
+삭제자만 `friend`로 지정해 비공개 `Free()`에 접근하게 했다. 호출은 기반 포인터로 하지만 `Free()`가 가상 함수이므로 파생 클래스의 정리 코드가 먼저 실행된다. 이후 부모 `Free()`를 거쳐 `delete this`에 도달하고, 가상 소멸자로 파생 객체와 멤버가 소멸한다. 외부 호출자는 `Free()`나 소멸자를 직접 호출할 필요 없이 소유권을 이전하거나 스마트 포인터를 `reset()`한다.
+
+`CSoundManager::Create()`처럼 초기화가 필요한 객체는 먼저 `UPtr`로 감싼 뒤 `Initialize()`를 실행한다. 초기화 실패로 반환해도 지역 스마트 포인터가 같은 정리 경로를 호출한다.
+
+```cpp
+UPtr<CSoundManager> CSoundManager::Create()
+{
+    auto instance = UPtr<CSoundManager>(new CSoundManager{});
+    if (FAILED(instance->Initialize()))
+        return nullptr;
+
+    return instance;
+}
+```
+
+생성자가 비공개이므로 `std::make_unique`를 클래스 밖에서 호출하지 않고, 접근 권한이 있는 정적 멤버 함수 안에서 생성한다. `Create()` 내부라도 `make_unique` 자체가 생성자에 접근할 권한을 얻는 것은 아니다. 이 경로에서는 기본 삭제자가 아닌 엔진 삭제자도 필요하다.
+
+공유 소유에는 `SPtr<T>`를 사용한다. 이 별칭 자체는 `std::shared_ptr<T>`이므로, `ToSPtr()`에서 `ENGINE_BASE_DELETER`를 함께 등록한다. 마지막 공유 소유자가 해제될 때 같은 `Free()` 경로가 실행된다. `WPtr`는 객체를 관찰할 뿐 수명을 연장하지 않는다.
+
+이 방식에서 주의할 점은 파생 클래스가 `Free()`를 재정의하면 자원 정리 후 **부모의 `Free()`를 반드시 호출해야 한다**는 것이다. 이를 빠뜨리면 최종 `delete this`에 도달하지 않아 객체가 누수된다. 부모 호출 뒤에는 객체가 이미 제거됐으므로 멤버에 접근해서도 안 된다.
+
+커스텀 삭제자는 최종 해제 방법을 통일하고, GameObject Manager는 해제 시점을 `FrameEnd`로 정한다. 스마트 포인터를 사용하더라도 Update 순회 중 객체를 임의로 제거하지 않도록 두 책임을 구분했다.
+
 ## Prototype과 Instance 분리
 
 공통 설정을 가진 원본 객체는 `CPrototypeManager`에 Group과 Tag 조합으로 등록한다. 실제 GameObject나 Component가 필요할 때 원본의 `Clone()`을 호출해 Instance를 만든다.
@@ -145,12 +202,6 @@ Free Slot 반환
 - Frame Loop: 단계별 Update와 FrameEnd 파괴
 - Object Pool: Manager 소유권을 유지한 활성·비활성 전환
 - Lua: 등록 완료 후 Owner Context 구성
-
-## 한계와 개선 방향 {/* #트레이드오프 */}
-
-Prototype 복제는 동일한 초기 구성을 빠르게 반복하는 데 적합하지만, 런타임 조합이 매우 다양한 객체에는 Factory나 데이터 기반 조립 방식이 더 적합할 수 있다. 현재 `CObjectFactory` 초안은 실제 생성 경로에 연결되어 있지 않으므로 이 구조의 성과로 포함하지 않았다.
-
-또한 `CGameInstance`가 여러 Manager API를 한곳에 노출해 사용은 단순하지만 의존성이 넓다. 장기적으로는 생성 Context나 제한된 Service Interface를 전달해 객체가 전역 façade에 직접 의존하는 범위를 줄일 수 있다.
 
 ## 구현 결과 {/* #결과 */}
 

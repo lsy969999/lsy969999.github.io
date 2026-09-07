@@ -220,7 +220,7 @@ Player Controller는 대표 Body의 World Matrix에서 위치를 꺼내는 `TryG
 5. 원래 Enable 상태인 Joint만 다시 활성화한다.
 6. CCT·Hurtbox·Root Motion과 입력 상태를 복원한다.
 
-이 API로 같은 객체를 다시 게임플레이 상태로 돌릴 수 있지만, 현재 구현은 물리 Pose에서 Get-up Animation으로 자연스럽게 Blend하는 완전한 부활 연출은 아니다. 사망 위치와 바닥 방향에 맞춰 Character Root를 옮기고, 앞·뒤로 누운 상태에 맞는 Get-up Clip을 선택하며, 일정 시간 Physical Animation Blend를 수행하는 단계가 추가로 필요하다.
+Reset API는 같은 객체를 다시 게임플레이 상태로 돌리는 데 사용한다.
 
 ## 디버깅과 안정성
 
@@ -235,14 +235,6 @@ Debug Draw는 다음 정보를 서로 다른 색으로 표시한다.
 - Twist 축과 Swing Cone
 
 Runtime 생성 전에는 버전, Quaternion, Shape 크기, 질량, Joint 각도, Break 값, Mass Scale 같은 수치의 유효성을 검사한다. 생성 도중 하나라도 실패하면 만들어진 Joint와 Body를 역순으로 정리한다. Joint `userData`가 Runtime Vector 원소를 가리키므로 생성 전에 Capacity를 확보해 재할당으로 Pointer가 무효화되지 않게 했다.
-
-현재 구조의 한계는 다음과 같다.
-
-- 활성화 시 같은 초기 속도를 모든 Body에 적용하며 충돌 지점별 Impulse 분배 API는 아직 없다.
-- Player는 Ragdoll Runtime을 미리 생성하므로 항상 Body·Joint 비용을 가진다.
-- Hips Follow Body가 배열 Index 0으로 암묵적으로 정해져 있다.
-- Reset은 상태 복원 API이며 Get-up Animation과 Pose Blending은 후속 작업이다.
-- 망토 Collision Rig를 랙돌 Bone 결과와 같은 물리 Step 안에서 재정렬하는 전용 연동은 아직 구현 범위가 아니다.
 
 ## 구현 결과 {/* #결과 */}
 

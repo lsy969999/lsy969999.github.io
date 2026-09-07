@@ -1,32 +1,51 @@
+import {projects} from './projects';
+
 export type TimelineEntry = {
   period: string;
   title: string;
-  summary: string;
+  summary?: string;
   links?: {
     href: string;
     label: string;
   }[];
 };
 
+// 프로젝트 소개는 Projects와 같은 데이터를 사용해 제목·기간·설명의 차이를 방지한다.
+function projectEntry(slug: string): TimelineEntry {
+  const project = projects.find((item) => item.slug === slug);
+  if (!project) {
+    throw new Error(`Timeline project not found: ${slug}`);
+  }
+
+  return {
+    period: project.period,
+    title: project.title,
+    summary: project.description,
+    links: [{href: `/projects/${project.slug}`, label: project.title}],
+  };
+}
+
 const timelineChronological: TimelineEntry[] = [
   {
     period: '2020.02 – 2020.08',
     title: 'KOSMO 64기 JAVA Backend 과정',
     summary:
-      'Java, JSP, Spring과 데이터베이스를 중심으로 웹 애플리케이션 개발 과정을 수료했습니다.',
+      'Java·JSP·Spring과 데이터베이스를 배우고 웹 애플리케이션을 개발했습니다.',
   },
   {
-    period: '2020.08',
-    title: 'HDBANK',
-    summary:
-      'KOSMO 파이널 팀 프로젝트에서 Spring·MyBatis 기반 계좌이체 기능과 JSP 화면을 구현했습니다.',
-    links: [{href: '/projects/hdbank', label: 'HDBANK'}],
+    period: '2020.06.30',
+    title: 'SQLD 취득',
+  },
+  projectEntry('hdbank'),
+  {
+    period: '2020.08.28',
+    title: '정보처리산업기사 취득',
   },
   {
     period: '2020.10.12 – 2022.12.15',
     title: '(주)이*넷',
     summary:
-      '기부 플랫폼 스타트업 부서인 C*erry에서 C*erry 플랫폼과 C*erry Card 서비스를 개발했습니다. Spring Boot와 PostgreSQL을 사용했으며 Kubernetes, Grafana, Argo 기반 운영 환경을 경험했습니다.',
+      '사내 스타트업 부서에서 기부 플랫폼 C*erry와 C*erry Card 관리자페이지의 개발·운영을 담당했습니다. Spring Boot·PostgreSQL로 사용자·관리자 기능과 자동충전·환불 대상 계산을 구현하고, 외부 카드사 연계와 정기 배포를 맡았습니다.',
     links: [
       {href: '/projects/cherry', label: 'C*erry'},
       {href: '/projects/cherry-card', label: 'C*erry Card 관리자페이지'},
@@ -41,75 +60,31 @@ const timelineChronological: TimelineEntry[] = [
     period: '2022.12.15 – 2024.01.01',
     title: '주식회사 C*erry',
     summary:
-      '(주)이*넷의 스타트업 부서에서 분사한 주식회사 C*erry에서 C*erry World 앱을 신규 출시하고 서비스를 유지보수했습니다. iOS 개발을 전담하고 Android·iOS 광고 연동을 담당했습니다.',
+      '분사 이후 걷기 리워드 앱 C*erry World의 초기 개발과 출시에 참여했습니다. iOS 앱 개발을 전담하고 웹–네이티브 통신과 Android·iOS 광고 연계를 구현했습니다. 출시 후에는 앱 이전에 따른 Apple 로그인 마이그레이션과 서비스 유지보수를 맡았습니다.',
     links: [{href: '/projects/cherry-world', label: 'C*erry World'}],
   },
-  {
-    period: '2024.08',
-    title: 'Flappy Bird',
-    summary:
-      'Rust와 Bevy 엔진으로 게임을 구현하고 Android, iOS, Web 환경에서 사용할 수 있도록 FFI 연결을 다뤘습니다.',
-    links: [{href: '/projects/flappy-bird', label: 'Flappy Bird'}],
-  },
-  {
-    period: '2024.10 – 2025.01',
-    title: 'Lucky Ball',
-    summary:
-      'Rust와 Bevy 엔진으로 게임을 구현하고 Android, iOS, Web에서 공유하기 위한 FFI 구조와 플랫폼 연동을 구현했습니다.',
-    links: [{href: '/projects/lucky-ball', label: 'Lucky Ball'}],
-  },
-  {
-    period: '2025.06 – 2025.08',
-    title: 'Tetris',
-    summary:
-      'Rust 게임 코어를 Android, iOS, Web과 FFI로 연결하고, WebSocket을 이용한 웹 멀티플레이 게임을 구현했습니다.',
-    links: [{href: '/projects/tetris', label: 'Tetris'}],
-  },
+  projectEntry('flappy-bird'),
+  projectEntry('lucky-ball'),
+  projectEntry('tetris'),
   {
     period: '2025.08',
     title: '쥬신게임아카데미 교육 시작',
     summary:
-      'C++ 게임 클라이언트 교육을 시작하고, 프레임워크부터 렌더링, 물리와 도구 개발까지 단계적으로 프로젝트를 수행했습니다.',
+      'C++ 게임 클라이언트 교육을 시작했습니다. Win32 API와 DirectX를 배우며 게임 프로그래밍의 기초를 공부했습니다.',
   },
+  projectEntry('sanabi'),
   {
-    period: '2025.11 – 2025.12',
-    title: 'SANABI',
-    summary:
-      'Win32 API와 GDI 기반 프레임워크를 직접 구성하고 게임플레이 시스템을 구현했습니다.',
-    links: [{href: '/projects/sanabi', label: 'SANABI'}],
+    period: '2025.12.24',
+    title: '정보처리기사 취득',
   },
-  {
-    period: '2026.01 – 2026.03',
-    title: 'DAVE THE DIVER',
-    summary:
-      'DirectX 9 기반 팀 프로젝트에서 팀장을 맡아 개발을 이끌고 게임 클라이언트 기능을 구현했습니다.',
-    links: [{href: '/projects/dave-the-diver', label: 'DAVE THE DIVER'}],
-  },
-  {
-    period: '2026.04 – 2026.06',
-    title: 'Minecraft',
-    summary:
-      'DirectX 11 기반 복셀 렌더링과 커스텀 엔진 구조를 구현하며 그래픽스 역량을 확장했습니다.',
-    links: [{href: '/projects/minecraft', label: 'Minecraft'}],
-  },
-  {
-    period: '2026.06 – 2026.08',
-    title: 'Hogwarts Legacy',
-    summary:
-      '팀장과 프레임워크 담당으로 엔진, 물리 시뮬레이션, 렌더링, 도구와 게임플레이를 아우르는 작업을 수행했습니다.',
-    links: [{href: '/projects/hogwarts-legacy', label: 'Hogwarts Legacy'}],
-  },
+  projectEntry('dave-the-diver'),
+  projectEntry('minecraft'),
+  projectEntry('hogwarts-legacy'),
   {
     period: '2026.08',
     title: '쥬신게임아카데미 수료',
     summary:
-      'C++ 게임 클라이언트 교육 과정과 최종 팀 프로젝트를 마치고 수료했습니다.',
-  },
-  {
-    period: '현재',
-    title: '게임 클라이언트 프로그래머 지원 준비',
-    summary:
-      '프로젝트의 결과뿐 아니라 문제 정의, 설계 판단, 디버깅과 개선 과정을 포트폴리오로 정리하고 있습니다.',
+      '호그와트 레거시 팀 프로젝트를 끝으로 1년간의 C++ 게임 클라이언트 교육 과정을 마쳤습니다.',
   },
 ];
 

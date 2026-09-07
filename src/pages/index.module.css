@@ -26,9 +26,24 @@
 }
 
 .title {
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
   font-size: clamp(3rem, 9vw, 6.5rem);
   letter-spacing: -0.06em;
+}
+
+.nickname {
+  margin-bottom: 1.5rem;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 1rem;
+}
+
+.aspiration {
+  max-width: 38rem;
+  margin-bottom: 0.75rem;
+  font-size: clamp(1.15rem, 2.4vw, 1.5rem);
+  font-weight: 600;
+  line-height: 1.6;
+  word-break: keep-all;
 }
 
 .description {

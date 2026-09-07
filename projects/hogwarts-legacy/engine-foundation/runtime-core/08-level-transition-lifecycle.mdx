@@ -223,16 +223,6 @@ Level 전환 중 Effect Container에서 발생한 접근 위반과 프로그램 
 - 장기 Callback은 Handle 재조회로 소유 객체의 수명을 검증했다.
 - 서로 다른 Build의 DLL 혼용은 시작 시 Signature 검사로 별도 차단했다.
 
-크래시가 사라졌다는 결과만으로 하나의 원인을 확정하는 대신, 서로 다른 수명 경계마다 재현 가능한 불변식을 두었다.
-
-## 한계와 개선 방향 {/* #남은-한계 */}
-
-현재 Loading Level은 Level별 Loader와 생성 분기를 `switch`로 직접 관리한다. Level이 계속 늘어난다면 Loader Factory나 Registry로 전환해 분기 누락을 줄일 수 있다.
-
-또한 `ClearAllRunningEffect()`는 Level 소유권과 관계없이 모든 실행 Effect를 정리한다. Level을 넘어 유지해야 하는 UI Effect나 전역 Effect가 늘어난다면 Effect Instance에 Scope 또는 Owner Level을 부여해 선택적으로 종료할 필요가 있다.
-
-Future는 Load·Unload 완료 여부만 표현한다. Worker에서 실제로 호출하는 Resource API의 Thread Safety까지 보장하지는 않으므로, GPU 객체와 Main Thread 전용 Runtime State는 Loader 시작 전 동기 구간에 두고 Worker에는 Thread-safe한 Resource 작업만 배치해야 한다.
-
 ## 구현 결과 {/* #결과 */}
 
 Level 전환을 비동기 작업 하나가 아니라 Frame 경계를 가진 상태 머신으로 정리했다. GameObject는 PendingDestroy와 FrameEnd, Effect는 하위 Runtime 객체 정리 후 Callback, Level은 Future 완료 후 다음 FrameStart, Binary는 애플리케이션 시작 시 Signature 검사라는 각자의 종료 지점을 갖는다.

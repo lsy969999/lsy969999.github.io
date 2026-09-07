@@ -131,12 +131,3 @@ ImGui Worker View는 Mutex 안에서 현재 작업 이름과 Pending Queue를 Sn
 Worker를 제공하는 것만으로 모든 엔진 API가 Thread-safe해지는 것은 아니다. Background Task에서 사용하는 Manager는 각자 Lock 정책을 가져야 하며, D3D11 Immediate Context나 GameObject Container처럼 Main Thread 전용인 상태는 직접 수정하지 않는다.
 
 Task Lambda가 생포인터나 참조를 Capture하면 실행 시점에 대상이 사라질 수 있다. 장기 참조에는 Handle이나 `shared_ptr`를 사용하고, Level 전환 시에는 Future 완료와 Manager 종료 순서를 확인한다.
-
-## 한계와 개선 방향 {/* #개선점 */}
-
-현재 Queue에는 우선순위, 취소 Token, Level별 Task Group이 없다. 또한 Stop 이후 `WorkerEnqueueWithFuture`가 호출되면 Enqueue 실패를 Future API가 명시적으로 전달하지 못해 대기 상태가 끝나지 않을 가능성이 있다. 실서비스 규모로 확장한다면 다음을 보강할 수 있다.
-
-- Enqueue 실패를 `optional<future>` 또는 즉시 Exception이 설정된 Future로 반환
-- Loading·Streaming·Background 작업별 우선순위
-- Level 전환 시 Task Group 취소와 Join
-- Task별 실행 시간과 Queue 대기 시간 통계

@@ -176,8 +176,8 @@ Update 도중 GameObject, Event Listener, Render Queue를 즉시 제거하면 �
 
 Fixed Timer와 별개로 Update Cadence의 남은 비율을 계산해 `Render(interpolation)`에 전달할 수 있는 Hook을 마련했다. 다만 현재 Base Render 경로는 이 값을 객체 Transform 보간에 직접 사용하지 않는다. 향후 Simulation 이전·현재 상태를 보관한다면 Fixed Update 사이의 화면 움직임을 보간하는 데 사용할 수 있다.
 
-## 한계와 개선 방향 {/* #트레이드오프 */}
+## 긴 프레임 처리 {/* #트레이드오프 */}
 
 현재 구조는 긴 Stall 이후 밀린 시간을 의도적으로 버린다. 따라서 실제 시간과 Simulation 시간이 잠시 어긋날 수 있지만, 한 Frame에서 수십 번 물리를 실행해 응답 불가능 상태에 빠지는 것을 방지한다.
 
-또한 Update와 Render가 같은 60Hz Cadence 안에서 실행되므로 고주사율 화면에서 Render만 더 자주 수행하는 구조는 아니다. 다음 단계에서는 Simulation Tick과 Render Frequency를 완전히 분리하고, 준비해 둔 보간 인자를 실제 Transform에 적용하는 방향으로 확장할 수 있다.
+Update와 Render는 같은 60Hz Cadence 안에서 실행한다.
