@@ -47,6 +47,16 @@ export default function ProjectOverview({
                 <dd>{value}</dd>
               </div>
             ))}
+            {project.githubUrl && (
+              <div className={styles.projectOverviewItem}>
+                <dt>GitHub</dt>
+                <dd>
+                  <Link href={project.githubUrl} target="_blank" rel="noopener noreferrer">
+                    저장소 보기 ↗
+                  </Link>
+                </dd>
+              </div>
+            )}
           </dl>
           <p className={styles.description}>{project.description}</p>
 

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "game-client-core",
+  "title": "임성윤 - 게임 클라이언트 포트폴리오",
+  "subtitle": "객체 수명 관리 · 물리 통합 · 비동기 월드",
+  "author": "임성윤",
+  "introduction": "게임 전체를 이해하는 개발자가 되고 싶습니다.",
+  "siteUrl": "https://limits1214.github.io",
+  "includeProfile": true,
+  "documents": [
+    {
+      "project": "hogwarts-legacy",
+      "title": "Generation Handle과 객체 수명 관리",
+      "route": "/projects/hogwarts-legacy/handle-object-manager",
+      "sections": ["배경과 목표", "Handle 구조", "즉시 삭제 대신 FrameEnd 지연 파괴", "구현 결과"]
+    },
+    {
+      "project": "hogwarts-legacy",
+      "title": "PhysX 충돌과 이벤트 전달",
+      "route": "/projects/hogwarts-legacy/physx-collision-query",
+      "sections": ["Simulation과 Query 정책 분리", "Actor와 Shape를 별도로 등록한 이유", "Callback을 즉시 호출하지 않는 이유"]
+    },
+    {
+      "project": "hogwarts-legacy",
+      "title": "애니메이션과 랙돌의 양방향 연결",
+      "route": "/projects/hogwarts-legacy/physx-ragdoll",
+      "sections": ["배경과 목표", "Animation Pose에서 Physics Pose로 전환", "Physics Pose를 Skeleton에 되돌리기", "CCT와 Hurtbox를 동시에 끄는 이유", "구현 결과"]
+    },
+    {
+      "project": "hogwarts-legacy",
+      "title": "NvCloth 망토의 렌더링과 안정화",
+      "route": "/projects/hogwarts-legacy/nvcloth-cape",
+      "sections": ["저해상도 Simulation Mesh와 고해상도 Render Mesh 분리", "몸 관통을 줄이는 Backstop과 충돌 리그", "고속 수직 이동 안정화", "Simulation 검증과 복구", "구현 결과"]
+    },
+    {
+      "project": "hogwarts-legacy",
+      "title": "Tracy 계측과 프로파일링 비용 제어",
+      "route": "/projects/hogwarts-legacy/tracy-profiling",
+      "sections": ["배경과 목표", "DLL 경계 통합", "개별 GameObject 계측의 비용 제어", "실제 활용 흐름"]
+    },
+    {
+      "project": "minecraft",
+      "title": "비동기 청크 생성과 작업 생명주기",
+      "route": "/projects/minecraft/async-chunk-streaming",
+      "sections": ["배경과 목표", "네 단계의 실행 흐름", "생성·해제와 계산 작업 사이의 경계", "Worker와 엔진 종료 순서", "구현 결과"]
+    }
+  ],
+  "outputFileName": "ImSeongYun_GameClient_Portfolio_Core.pdf"
+}

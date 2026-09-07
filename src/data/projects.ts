@@ -13,6 +13,7 @@ export type PortfolioProject = {
   role?: string;
   teamSize?: string;
   platform?: string;
+  githubUrl?: string;
   overview?: string;
   collaboration?: string[];
   tasks?: ProjectTask[];

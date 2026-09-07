@@ -4,6 +4,26 @@ Docusaurus가 `projects` 폴더의 MDX를 웹 문서로 생성하고, Playwright
 
 ## 실행
 
+네 게임의 대표 구현을 모은 기술서:
+
+```bash
+npm run pdf:projects
+```
+
+`portfolio-pdf.game-projects.json`에서 호그와트 레거시·마인크래프트·데버다·산나비의 대표 구현 6개를 선택한다. 결과는 `output/pdf/ImSeongYun_Game_Portfolio_Technical.pdf`이며, 기존 2개 프로젝트 PDF와 별도로 저장한다.
+
+`compactProfile`은 네 프로젝트 소개를 표지의 2열 카드로 배치한다. `coverLabel`은 표지 상단 문구다. 각 문서의 `omitParagraphsStartingWith`에는 PDF에서 생략할 문단의 시작 문장을 지정할 수 있다. MDX의 강조·코드 표시는 제외한 화면상의 문자열을 사용하며, 일치하는 문단이 하나가 아니면 출력이 중단된다. 웹의 다른 글 안내나 사용하지 않는 테스트 경로 설명을 빼는 데 사용한다.
+
+핵심 문서의 선택한 절만 모은 게임 클라이언트 포트폴리오:
+
+```bash
+npm run pdf:core
+```
+
+`portfolio-pdf.game-client-core.json`을 사용하며 `output/pdf/ImSeongYun_GameClient_Portfolio_Core.pdf`에 저장한다. 웹 경력은 포함하지 않는다.
+
+기존 단일 문서 테스트:
+
 ```bash
 npm run pdf:test
 ```
@@ -23,6 +43,26 @@ output/pdf/GameClient_Portfolio_Test.pdf
 - `includeProfile`: 로컬 PDF 앞에 표지를 추가한다.
 - `documents`: 출력할 MDX의 제목과 웹 경로 목록이다.
 - `outputFileName`: 로컬에 생성될 파일명이다.
+
+핵심 프리셋은 문서마다 다음과 같이 절을 선택한다.
+
+```json
+{
+  "project": "hogwarts-legacy",
+  "title": "Generation Handle과 객체 수명 관리",
+  "route": "/projects/hogwarts-legacy/handle-object-manager",
+  "sections": ["배경과 목표", "Handle 구조", "즉시 삭제 대신 FrameEnd 지연 파괴", "구현 결과"]
+}
+```
+
+- `project`: `src/data/projects.json`의 slug. 기간·팀 인원·역할은 기존 프로젝트 데이터에서 읽는다.
+- 프로젝트 데이터에 `githubUrl`을 지정하면 웹 프로젝트 개요와 PDF 표지에 저장소 링크가 표시된다. 주소가 없는 프로젝트에는 링크를 만들지 않는다.
+- `title`: PDF에서 표시할 장 제목. 웹 문서 제목을 변경하지 않는다.
+- `sections`: 포함할 H2 제목 또는 heading ID. 본문은 원문의 순서로 출력하며, H3 이하도 함께 포함한다. 생략하면 문서 전체를 출력한다.
+- 제목이 중복되면 heading ID로 지정한다. 제목을 바꿨거나 선택한 절이 없으면 조용히 누락하지 않고 오류로 중단한다.
+- `author`, `introduction`: 표지에 들어갈 이름과 소개 문구.
+
+표지 목차의 페이지 번호와 전체 페이지 번호는 자동 계산한다. 웹 내비게이션·태그·이전/다음 문서 버튼은 제외하고, 문서 링크는 공개 사이트 주소로 바꾼다. PDF만의 여백·글자 크기·색상은 `portfolio-pdf.css`에서 조절한다. 실행 중인 개발 서버와 별도 포트로 임시 서버를 열고 출력 후 종료한다.
 
 기술 문서의 원본은 `projects` 아래의 MDX다. TSX 래퍼나 별도의 PDF 본문은 사용하지 않는다. MDX를 수정하면 웹과 다음 PDF 출력에 동일하게 반영된다.
 

@@ -1,6 +1,7 @@
 [
   {
     "slug": "hogwarts-legacy",
+    "githubUrl": "https://github.com/limits1214/JUSIN_160_FINAL_TEAM_PROJECT",
     "title": "Hogwarts Legacy",
     "period": "2026.06 – 2026.08",
     "description": "C++20·DirectX 11 기반 7인 팀 프로젝트에서 팀장을 맡아 프레임워크와 물리 시스템을 구성하고, 망토 시뮬레이션·물리 콘텐츠·디버그 도구를 구현했습니다.",
@@ -34,6 +35,7 @@
   },
   {
     "slug": "minecraft",
+    "githubUrl": "https://github.com/limits1214/JUSIN_160_3D_Minecraft",
     "title": "Minecraft",
     "period": "2026.04 – 2026.06",
     "description": "C++20·DirectX 11 자체 엔진으로 절차적 복셀 월드, 비동기 청크 로딩, 블록 설치·파괴와 생존 게임플레이를 구현한 1인 프로젝트입니다.",
@@ -62,6 +64,7 @@
   },
   {
     "slug": "dave-the-diver",
+    "githubUrl": "https://github.com/limits1214/JUSIN_160_SR_2TEAM",
     "title": "DAVE THE DIVER",
     "period": "2026.01 – 2026.03",
     "description": "DirectX 9 기반 4인 팀 프로젝트에서 팀장을 맡아 프레임워크를 보강하고, UI·물고기 행동·포획과 Spine 애니메이션 연동을 구현했습니다.",
@@ -89,6 +92,7 @@
   },
   {
     "slug": "sanabi",
+    "githubUrl": "https://github.com/limits1214/JUSIN_160_API_SANABI",
     "title": "SANABI",
     "period": "2025.11 – 2025.12",
     "description": "Win32 API·GDI 기반 1인 프로젝트로 와이어 이동과 전투·애니메이션, 적 AI와 보스 패턴, 맵 에디터를 구현하고 프레임워크를 보강했습니다.",

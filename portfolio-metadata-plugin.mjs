@@ -102,6 +102,7 @@ function loadProjectDefinitions(value, source) {
       role: optionalString(project.role, 'role', itemSource),
       teamSize: optionalString(project.teamSize, 'teamSize', itemSource),
       platform: optionalString(project.platform, 'platform', itemSource),
+      githubUrl: optionalString(project.githubUrl, 'githubUrl', itemSource),
       overview: optionalString(project.overview, 'overview', itemSource),
       collaboration: optionalStringArray(project.collaboration, 'collaboration', itemSource),
       tasks: optionalTasks(project.tasks, itemSource),

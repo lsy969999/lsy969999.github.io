@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "id": "game-projects",
+  "title": "임성윤 - 게임 포트폴리오 기술서",
+  "coverLabel": "게임 포트폴리오 기술서",
+  "subtitle": "Hogwarts Legacy · Minecraft · DAVE THE DIVER · SANABI",
+  "author": "임성윤",
+  "introduction": "게임 전체를 이해하는 개발자가 되고 싶습니다.",
+  "siteUrl": "https://limits1214.github.io",
+  "includeProfile": true,
+  "compactProfile": true,
+  "documents": [
+    {
+      "project": "hogwarts-legacy",
+      "title": "Generation Handle과 객체 수명 관리",
+      "route": "/projects/hogwarts-legacy/handle-object-manager",
+      "sections": ["배경과 목표", "Handle 구조", "즉시 삭제 대신 FrameEnd 지연 파괴", "구현 결과"]
+    },
+    {
+      "project": "hogwarts-legacy",
+      "title": "애니메이션과 랙돌의 양방향 연결",
+      "route": "/projects/hogwarts-legacy/physx-ragdoll",
+      "sections": ["배경과 목표", "Animation Pose에서 Physics Pose로 전환", "Physics Pose를 Skeleton에 되돌리기", "CCT와 Hurtbox를 동시에 끄는 이유", "구현 결과"]
+    },
+    {
+      "project": "minecraft",
+      "title": "비동기 청크 생성과 작업 생명주기",
+      "route": "/projects/minecraft/async-chunk-streaming",
+      "sections": ["배경과 목표", "네 단계의 실행 흐름", "생성·해제와 계산 작업 사이의 경계", "Worker와 엔진 종료 순서", "구현 결과"],
+      "omitParagraphsStartingWith": ["월드에서는", "노출 면과 정점 데이터를 만드는 방법은", "전체 구현 범위와 추천 읽기 순서는"]
+    },
+    {
+      "project": "dave-the-diver",
+      "title": "장비 UI와 플레이 데이터 연동",
+      "route": "/projects/dave-the-diver/idiver-upgrade-ui",
+      "sections": ["배경과 목표", "구매 결과를 다음 잠수에 전달", "구현 결과"]
+    },
+    {
+      "project": "dave-the-diver",
+      "title": "Spine을 DirectX 9 렌더링에 연결",
+      "route": "/projects/dave-the-diver/spine-dx9-integration",
+      "sections": ["배경과 목표", "공유 데이터와 개체별 상태", "애니메이션 평가와 정점 추출 분리", "MeshAttachment를 DirectX 정점으로 변환", "애니메이션 디버깅"],
+      "omitParagraphsStartingWith": ["CAssetSpine에도 테스트용"]
+    },
+    {
+      "project": "sanabi",
+      "title": "사슬팔 스윙과 이동 상태 전환",
+      "route": "/projects/sanabi/grapple-swing",
+      "sections": ["목표와 담당 범위", "결속점을 중심으로 스윙 계산", "당겨 이동과 천장 부착", "해제와 시각적 피드백", "구현 결과"],
+      "omitParagraphsStartingWith": ["스윙은 Apply_Pend()", "좌우 벽 도착 분기에는"]
+    }
+  ],
+  "outputFileName": "ImSeongYun_Game_Portfolio_Technical.pdf"
+}
